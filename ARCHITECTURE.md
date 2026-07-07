@@ -52,7 +52,8 @@ A VPS on existing One.com/Bluehost infrastructure was considered first (to avoid
 - **`services/ai.py` output contract fixed** — `generate_structured()` now enforces and normalizes a fixed schema (`website_post`, `social_media`, `email`, `whatsapp`, `slides`, `follow_up_actions`) so the plugin can reliably map fields instead of guessing at arbitrary LLM JSON shape. This was a real gap found while building the plugin, not a pre-existing decision.
 - **No tests** — none exist yet for auth/organizations/campaigns/content, or for the plugin.
 - **No Alembic migrations in use** — `alembic` is in `requirements.txt` but no migration files exist; currently relies on `Base.metadata.create_all` in `main.py`, which won't handle schema changes cleanly once there's real data in production.
-- **Not yet on GitHub / not yet deployed to Render** — the app has nowhere to run yet; this is the next real blocker before the plugin can be used against a live API instead of localhost. Requires Kurt to push to GitHub and complete the Render Blueprint setup himself (account/billing steps I can't do on his behalf).
+- ~~Not yet on GitHub / not yet deployed to Render~~ — **live as of 2026-07-07** at `https://engage-ai-api.onrender.com`. Three deploy-time bugs were found and fixed along the way: legacy `starter` Postgres plan (→ `basic-256mb`), psycopg2/psycopg3 driver mismatch (`db/session.py` now rewrites the URL to `postgresql+psycopg://`), and a missing `email-validator` dependency for `EmailStr`.
+- **Next real step:** point the WordPress plugin's Settings page at this URL and do an end-to-end test (register, create an org, generate content, confirm a WP post gets created).
 
 ## 6. Deferred for later (explicitly not now)
 
