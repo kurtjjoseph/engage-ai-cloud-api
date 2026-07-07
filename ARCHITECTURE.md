@@ -48,11 +48,13 @@ Chosen over Render.com to keep everything on infrastructure already owned/paid f
 
 ## 5. Outstanding implementation gaps (not decisions — just not built yet)
 
-- **No git repo** — nothing here is version-controlled. Do this before further changes.
-- **No WordPress plugin code** — the next concrete build task per §3.1.
-- **No tests** — none exist yet for auth/organizations/campaigns/content.
+- ~~No git repo~~ — done, initial commit made.
+- ~~No WordPress plugin code~~ — done, v0.1.0 built at `~/Downloads/engage-ai-wordpress` (separate repo). Settings page (connect/org management/publish-status default) + Generate Content page (event/announcement/sermon) that calls this API and auto-publishes a WP post, with social/email/WhatsApp/slides/follow-up shown for manual copy.
+- **`services/ai.py` output contract fixed** — `generate_structured()` now enforces and normalizes a fixed schema (`website_post`, `social_media`, `email`, `whatsapp`, `slides`, `follow_up_actions`) so the plugin can reliably map fields instead of guessing at arbitrary LLM JSON shape. This was a real gap found while building the plugin, not a pre-existing decision.
+- **No tests** — none exist yet for auth/organizations/campaigns/content, or for the plugin.
 - **No Alembic migrations in use** — `alembic` is in `requirements.txt` but no migration files exist; currently relies on `Base.metadata.create_all` in `main.py`, which won't handle schema changes cleanly once there's real data in production.
 - **No Caddyfile/backup script/unattended-upgrades config** yet — to be written as part of the VPS deploy work.
+- **VPS not yet provisioned** — the app has nowhere to run yet; this is the next real blocker before the plugin can be used against a live API instead of localhost.
 
 ## 6. Deferred for later (explicitly not now)
 
