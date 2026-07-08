@@ -6,7 +6,7 @@ from app.config import settings
 from app.db.session import get_db
 from app.models.entities import Organization, User
 from app.services.plugin_packager import build_personalized_zip
-from app.services.security import create_long_lived_token, hash_password
+from app.services.security import create_long_lived_token, hash_password, verify_password
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
@@ -33,11 +33,12 @@ def render_form(error: str | None = None) -> str:
 <body>
   <div class="card">
     <h1>Get Engage AI</h1>
-    <p class="lead">Create your account and download a WordPress plugin that's already connected - no setup screen, just install and activate.</p>
+    <p class="lead">Create your account and download a WordPress plugin that's already connected - no setup screen, just install and activate. Already have an account? Enter the same email and password below to get a fresh download.</p>
     {error_html}
     <form method="post" action="/onboarding">
       <label for="business_name">Church / business / channel name</label>
       <input type="text" id="business_name" name="business_name" required>
+      <p class="hint">Ignored if you already have an account - your existing organization is used instead.</p>
 
       <label for="org_type">Type</label>
       <select id="org_type" name="org_type">
@@ -77,23 +78,47 @@ def signup_submit(
     if len(password) < 8:
         return HTMLResponse(render_form(error="Password must be at least 8 characters."), status_code=400)
 
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        return HTMLResponse(render_form(error="An account with that email already exists."), status_code=400)
+    existing_user = db.query(User).filter(User.email == email).first()
 
-    user = User(email=email, hashed_password=hash_password(password))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    if existing_user:
+        # Already have an account (e.g. re-downloading after losing the zip,
+        # or after a plugin update) - treat this as a login and hand back a
+        # fresh personalized zip instead of blocking with an error.
+        if not verify_password(password, existing_user.hashed_password):
+            return HTMLResponse(
+                render_form(error="An account with that email already exists, and that password doesn't match. Use the same password to redownload your plugin."),
+                status_code=400,
+            )
+        user = existing_user
+        org = (
+            db.query(Organization)
+            .filter(Organization.owner_id == user.id)
+            .order_by(Organization.id.desc())
+            .first()
+        )
+        if not org:
+            org = Organization(
+                owner_id=user.id,
+                name=business_name,
+                org_type="church" if org_type == "church" else "business",
+            )
+            db.add(org)
+            db.commit()
+            db.refresh(org)
+    else:
+        user = User(email=email, hashed_password=hash_password(password))
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
-    org = Organization(
-        owner_id=user.id,
-        name=business_name,
-        org_type="church" if org_type == "church" else "business",
-    )
-    db.add(org)
-    db.commit()
-    db.refresh(org)
+        org = Organization(
+            owner_id=user.id,
+            name=business_name,
+            org_type="church" if org_type == "church" else "business",
+        )
+        db.add(org)
+        db.commit()
+        db.refresh(org)
 
     # Long-lived, not the 7-day login session token - there's no login form
     # on the WordPress side to refresh it (see services/security.py).
