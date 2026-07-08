@@ -1,4 +1,5 @@
 import json
+import re
 from anthropic import Anthropic
 from app.config import settings
 
@@ -15,7 +16,8 @@ Rules:
   review count/rating, subscriber count, video count, how recently they posted, etc.) plus one
   short qualitative note.
 - Write a short overall summary (2-4 sentences) of the organization's current public digital footprint.
-- Return ONLY valid JSON, no markdown fences, no commentary outside the JSON, matching exactly:
+- After you finish researching, your FINAL message must be ONLY the JSON object below - no leading
+  "here is my report" sentence, no markdown fence, no trailing commentary - matching exactly:
 {
   "summary": "string",
   "channels": [
@@ -27,11 +29,21 @@ Rules:
 
 
 def _extract_json(text: str) -> dict:
+    """Web-search-augmented responses reliably ignore "no commentary" and
+    prepend a sentence like "Based on my research, here's the report" before
+    the JSON (sometimes still fenced, sometimes not) - so this looks for a
+    fenced block first, then falls back to the outermost {...} span, rather
+    than assuming the response starts with the JSON."""
     text = text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:]
+
+    fence_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
+    if fence_match:
+        return json.loads(fence_match.group(1))
+
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(text[start:end + 1])
+
     return json.loads(text)
 
 
