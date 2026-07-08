@@ -112,6 +112,32 @@ class EngageAI_Api_Client
     }
 
     /**
+     * Partial update for org-wide fields (mission, tone, audience,
+     * website_url, etc.) - send only the fields being changed.
+     * @return array|WP_Error
+     */
+    public function update_organization(int $org_id, array $fields)
+    {
+        return $this->request('PATCH', '/organizations/' . $org_id, $fields);
+    }
+
+    /**
+     * @return array|WP_Error
+     */
+    public function run_analytics_scan(int $org_id)
+    {
+        return $this->request('POST', '/organizations/' . $org_id . '/analytics/scan');
+    }
+
+    /**
+     * @return array|WP_Error list of AnalyticsSnapshots, most recent first
+     */
+    public function get_analytics_snapshots(int $org_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/analytics');
+    }
+
+    /**
      * @param string $task one of: event, announcements, sermon
      * @return array|WP_Error
      */

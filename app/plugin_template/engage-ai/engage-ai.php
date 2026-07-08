@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Engage AI
- * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), plus autonomous check-in agents for the 8 Claude AI side-hustle modules, via the Engage AI Cloud API.
- * Version: 0.2.0
+ * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
+ * Version: 0.3.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.2.0');
+define('ENGAGEAI_VERSION', '0.3.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -20,6 +20,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-post-publisher.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-settings.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-generate.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-agents.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-analytics.php';
 
 final class EngageAI_Plugin
 {
@@ -41,6 +42,7 @@ final class EngageAI_Plugin
         EngageAI_Admin_Settings::instance()->register_hooks();
         EngageAI_Admin_Generate::instance()->register_hooks();
         EngageAI_Admin_Agents::instance()->register_hooks();
+        EngageAI_Admin_Analytics::instance()->register_hooks();
     }
 
     public function register_admin_menu(): void
@@ -71,6 +73,15 @@ final class EngageAI_Plugin
             'manage_options',
             'engageai-agents',
             [EngageAI_Admin_Agents::instance(), 'render_page']
+        );
+
+        add_submenu_page(
+            'engageai-generate',
+            __('Analytics', 'engage-ai'),
+            __('Analytics', 'engage-ai'),
+            'manage_options',
+            'engageai-analytics',
+            [EngageAI_Admin_Analytics::instance(), 'render_page']
         );
 
         add_submenu_page(

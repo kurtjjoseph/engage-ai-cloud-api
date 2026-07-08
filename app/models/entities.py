@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, JSON
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 
@@ -30,6 +30,10 @@ class Organization(Base):
     recurring_schedule: Mapped[list | None] = mapped_column(JSON, nullable=True)
     locations: Mapped[list | None] = mapped_column(JSON, nullable=True)
     speakers: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Anchors the analytics web search (services/analytics_search.py) to the
+    # right organization instead of guessing from name alone - optional, but
+    # search precision drops a lot without it for common org names.
+    website_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Modular activation: which capabilities this org has turned on, e.g.
@@ -51,6 +55,7 @@ class Organization(Base):
     content_items = relationship("ContentItem", back_populates="organization")
     tickets = relationship("Ticket", back_populates="organization")
     agent_runs = relationship("AgentRun", back_populates="organization")
+    analytics_snapshots = relationship("AnalyticsSnapshot", back_populates="organization")
 
 
 class ContentItem(Base):
@@ -102,3 +107,26 @@ class AgentRun(Base):
     ran_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="agent_runs")
+
+
+class AnalyticsSnapshot(Base):
+    """One web-search-based scan of an organization's public digital
+    footprint (services/analytics_search.py). The first snapshot for an org
+    is flagged as its baseline - later snapshots are meant to be compared
+    against it, so "is engagement actually improving" has a fixed reference
+    point instead of just comparing against whatever the last scan happened
+    to say."""
+
+    __tablename__ = "analytics_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    is_baseline: Mapped[bool] = mapped_column(Boolean, default=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # list of {"channel": str, "metrics": {...}, "notes": str}
+    channels: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # list of URLs the search drew on, for the admin to verify claims against
+    sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    organization = relationship("Organization", back_populates="analytics_snapshots")

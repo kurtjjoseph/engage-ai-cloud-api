@@ -37,6 +37,21 @@ def get_owned_org(org_id: int, db: Session, user: User) -> Organization:
     return org
 
 
+@router.patch("/{org_id}", response_model=OrganizationOut)
+def update_organization(org_id: int, payload: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Partial update for org-wide fields (mission, tone, audience,
+    website_url, etc.) - only OrganizationCreate's known fields are applied,
+    so a caller can safely send just the one or two fields it's changing."""
+    org = get_owned_org(org_id, db, user)
+    allowed = set(OrganizationCreate.model_fields.keys())
+    for key, value in payload.items():
+        if key in allowed:
+            setattr(org, key, value)
+    db.commit()
+    db.refresh(org)
+    return org
+
+
 @router.patch("/{org_id}/modules", response_model=OrganizationOut)
 def update_modules(org_id: int, payload: ModulesUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Sets the org's full list of activated modules, e.g.

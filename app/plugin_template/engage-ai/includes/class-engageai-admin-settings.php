@@ -32,6 +32,7 @@ class EngageAI_Admin_Settings
     {
         return [
             'engagement' => __('Church Engagement Content (events, announcements, sermons)', 'engage-ai'),
+            'analytics' => __('Analytics (web-search digital footprint scans)', 'engage-ai'),
             'agent:physical_product' => __('Physical Product Business', 'engage-ai'),
             'agent:reselling' => __('Reselling & Thrift Flipping', 'engage-ai'),
             'agent:youtube_channel' => __('YouTube Channel Growth', 'engage-ai'),
@@ -50,6 +51,7 @@ class EngageAI_Admin_Settings
         add_action('admin_post_engageai_disconnect', [$this, 'handle_disconnect']);
         add_action('admin_post_engageai_create_organization', [$this, 'handle_create_organization']);
         add_action('admin_post_engageai_select_organization', [$this, 'handle_select_organization']);
+        add_action('admin_post_engageai_update_organization', [$this, 'handle_update_organization']);
         add_action('admin_post_engageai_update_modules', [$this, 'handle_update_modules']);
     }
 
@@ -112,6 +114,7 @@ class EngageAI_Admin_Settings
             'mission' => sanitize_textarea_field($_POST['engageai_org_mission'] ?? ''),
             'tone' => sanitize_text_field($_POST['engageai_org_tone'] ?? 'warm, clear, inviting, faith-centered'),
             'audience' => sanitize_text_field($_POST['engageai_org_audience'] ?? ''),
+            'website_url' => esc_url_raw($_POST['engageai_org_website_url'] ?? ''),
         ]);
 
         if (is_wp_error($result)) {
@@ -136,6 +139,28 @@ class EngageAI_Admin_Settings
 
         $this->client->set_organization_id($org_id);
         $this->redirect_with_notice('success', __('Organization selected.', 'engage-ai'));
+    }
+
+    public function handle_update_organization(): void
+    {
+        $this->verify_request('engageai_update_organization');
+
+        $org_id = $this->client->get_organization_id();
+        if (!$org_id) {
+            $this->redirect_with_notice('error', __('Select an organization first.', 'engage-ai'));
+        }
+
+        $result = $this->client->update_organization($org_id, [
+            'website_url' => esc_url_raw($_POST['engageai_org_website_url'] ?? ''),
+            'mission' => sanitize_textarea_field($_POST['engageai_org_mission'] ?? ''),
+            'audience' => sanitize_text_field($_POST['engageai_org_audience'] ?? ''),
+        ]);
+
+        if (is_wp_error($result)) {
+            $this->redirect_with_notice('error', $result->get_error_message());
+        }
+
+        $this->redirect_with_notice('success', __('Organization details updated.', 'engage-ai'));
     }
 
     public function handle_update_modules(): void
@@ -308,6 +333,13 @@ class EngageAI_Admin_Settings
                             <th><label for="engageai_org_audience"><?php esc_html_e('Audience', 'engage-ai'); ?></label></th>
                             <td><input type="text" id="engageai_org_audience" name="engageai_org_audience" class="regular-text"></td>
                         </tr>
+                        <tr>
+                            <th><label for="engageai_org_website_url"><?php esc_html_e('Website URL', 'engage-ai'); ?></label></th>
+                            <td>
+                                <input type="url" id="engageai_org_website_url" name="engageai_org_website_url" class="regular-text" placeholder="https://example.org">
+                                <p class="description"><?php esc_html_e('Optional, but sharpens the Analytics module\'s web search a lot for common organization names.', 'engage-ai'); ?></p>
+                            </td>
+                        </tr>
                     </table>
                     <?php submit_button(__('Create organization', 'engage-ai')); ?>
                 </form>
@@ -324,7 +356,30 @@ class EngageAI_Admin_Settings
                     $enabled_modules = $active_org['enabled_modules'] ?? [];
                     ?>
                     <hr>
-                    <h2><?php esc_html_e('4. Modules', 'engage-ai'); ?></h2>
+                    <h2><?php esc_html_e('4. Organization details', 'engage-ai'); ?></h2>
+                    <p class="description"><?php esc_html_e('Website URL sharpens the Analytics module\'s web search a lot for common organization names.', 'engage-ai'); ?></p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="engageai_update_organization">
+                        <?php wp_nonce_field('engageai_update_organization'); ?>
+                        <table class="form-table">
+                            <tr>
+                                <th><label for="engageai_org_website_url"><?php esc_html_e('Website URL', 'engage-ai'); ?></label></th>
+                                <td><input type="url" id="engageai_org_website_url" name="engageai_org_website_url" class="regular-text" value="<?php echo esc_attr($active_org['website_url'] ?? ''); ?>" placeholder="https://example.org"></td>
+                            </tr>
+                            <tr>
+                                <th><label for="engageai_org_mission"><?php esc_html_e('Mission', 'engage-ai'); ?></label></th>
+                                <td><textarea id="engageai_org_mission" name="engageai_org_mission" class="large-text" rows="2"><?php echo esc_textarea($active_org['mission'] ?? ''); ?></textarea></td>
+                            </tr>
+                            <tr>
+                                <th><label for="engageai_org_audience"><?php esc_html_e('Audience', 'engage-ai'); ?></label></th>
+                                <td><input type="text" id="engageai_org_audience" name="engageai_org_audience" class="regular-text" value="<?php echo esc_attr($active_org['audience'] ?? ''); ?>"></td>
+                            </tr>
+                        </table>
+                        <?php submit_button(__('Save organization details', 'engage-ai')); ?>
+                    </form>
+
+                    <hr>
+                    <h2><?php esc_html_e('5. Modules', 'engage-ai'); ?></h2>
                     <p class="description"><?php esc_html_e('Turn on only what this organization needs. "Church Engagement Content" is the original event/announcement/sermon generator; each Claude AI side hustle below runs its own autonomous check-in cycle once activated.', 'engage-ai'); ?></p>
                     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                         <input type="hidden" name="action" value="engageai_update_modules">

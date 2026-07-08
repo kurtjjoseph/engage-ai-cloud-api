@@ -28,6 +28,7 @@ class OrganizationCreate(BaseModel):
     recurring_schedule: list[dict] | None = None
     locations: list[dict] | None = None
     speakers: list[dict] | None = None
+    website_url: str | None = None
 
 
 class OrganizationOut(OrganizationCreate):
@@ -109,6 +110,18 @@ class ContentOut(BaseModel):
     content_type: str
     title: str
     output_payload: dict
+
+    class Config:
+        from_attributes = True
+
+
+class AnalyticsSnapshotOut(BaseModel):
+    id: int
+    is_baseline: bool
+    summary: str | None
+    channels: list[dict] | None
+    sources: list[str] | None
+    created_at: datetime
 
     class Config:
         from_attributes = True
