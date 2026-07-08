@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
+from app.db.migrate import sync_missing_columns
 from app.db.session import Base, engine
 from app.routers import agents, auth, campaigns, content, onboarding, organizations
 from app.services.scheduler import start_scheduler
 
 Base.metadata.create_all(bind=engine)
+sync_missing_columns()
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
