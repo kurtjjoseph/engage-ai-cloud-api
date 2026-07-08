@@ -3,9 +3,17 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.deps import get_current_user
 from app.models.entities import Organization, User
-from app.schemas import OrganizationCreate, OrganizationOut
+from app.schemas import ModulesUpdate, OrganizationCreate, OrganizationOut
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
+
+# Recognized "agent:<niche>" values - kept here (not enforced server-side
+# beyond documentation) so NICHE_PROMPTS in services/agent_ai.py stays the
+# single source of truth for what a niche actually does.
+KNOWN_AGENT_NICHES = [
+    "physical_product", "reselling", "youtube_channel", "answer_man",
+    "local_service", "app_builder", "ugc_creator", "coaching",
+]
 
 
 @router.post("", response_model=OrganizationOut)
@@ -26,4 +34,17 @@ def get_owned_org(org_id: int, db: Session, user: User) -> Organization:
     org = db.query(Organization).filter(Organization.id == org_id, Organization.owner_id == user.id).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
+    return org
+
+
+@router.patch("/{org_id}/modules", response_model=OrganizationOut)
+def update_modules(org_id: int, payload: ModulesUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Sets the org's full list of activated modules, e.g.
+    ["engagement", "agent:youtube_channel", "agent:coaching"]. Replaces
+    rather than merges, so the caller (the WordPress "Modules" checkboxes)
+    can just send its current checked state."""
+    org = get_owned_org(org_id, db, user)
+    org.enabled_modules = payload.enabled_modules
+    db.commit()
+    db.refresh(org)
     return org

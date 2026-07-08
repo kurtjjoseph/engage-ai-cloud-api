@@ -1,6 +1,6 @@
 # Engage AI — Architecture & Product Decisions
 
-**Status as of this doc:** working FastAPI backend, not yet version-controlled, not yet deployed, no plugin/frontend built.
+**Status as of this doc:** live in production on Render (`https://engage-ai-api.onrender.com`) for the original church-engagement feature. Locally, the codebase has just been extended with a second, modular capability — autonomous agents for the 8 Claude AI side hustles (§3.4) — verified against a local SQLite database and a live Anthropic key, but **not yet pushed to the live Render service**. Treat pushing this to production as a real deploy decision, not a formality — it's an already-used live system, not a fresh one.
 
 ## 1. What Engage AI is
 
@@ -41,6 +41,20 @@ A VPS on existing One.com/Bluehost infrastructure was considered first (to avoid
 
 **Not yet decided:** custom domain name (or just use the Render-assigned `.onrender.com` URL for now).
 
+### 3.4 Modular agent capabilities (added 2026-07-08): one account, activatable modules
+
+Originally prototyped as two entirely separate services: a standalone `agent-cloud-api` (its own `Client`/`Ticket`/`AgentRun` tables, own auth, own Render deploy) plus a standalone `agent-hub` WordPress plugin. Reversed once it became clear the actual customer for the YouTube-channel-growth agent (and, by extension, the other 7 Claude AI side hustles) is the same church/organization already using Engage AI, not a separate audience — e.g. a church wanting to grow its own YouTube channel for sermons/worship. Two logins for one customer, and two profiles for the same organization's tone/audience, didn't make sense once that was clear.
+
+**The resolution: one account (`Organization`), modules a client activates individually.** `Organization` gained:
+- `enabled_modules` (JSON list) — e.g. `["engagement", "agent:youtube_channel", "agent:coaching"]`. `"engagement"` gates the original campaign generators (§2); each `"agent:<niche>"` entry gates one autonomous side-hustle agent. An org can run several niches at once, each with its own independent ticket queue.
+- `agent_profiles` (JSON, keyed by niche) — per-niche memory (topic, posting cadence, gear, etc.), kept separate from the org-wide `tone`/`audience`/`mission` fields since niches have different, free-form profile shapes. The org-wide fields are used as fallback context if a niche's own profile is still thin.
+
+New tables `tickets` and `agent_runs` (both FK'd to `organization_id`, both carrying a `niche` column so one org can run multiple niches without collision). New service files `services/agent_ai.py` (the Claude-powered cycle brain — `BASE_PROTOCOL` + one `NICHE_PROMPTS` entry per hustle: `physical_product`, `reselling`, `youtube_channel`, `answer_man`, `local_service`, `app_builder`, `ugc_creator`, `coaching`), `services/cycle_engine.py` (loads context, calls Claude, persists tickets — module-gated via `is_module_enabled()`), `services/scheduler.py` (in-process APScheduler, iterates every org's active `agent:*` modules on an interval). New router `routers/agents.py`, mounted at `/organizations/{org_id}/agents/{niche}/...` (cycles, tickets, decisions, profile), every endpoint 403ing if that niche's module isn't enabled. New endpoint `PATCH /organizations/{id}/modules` replaces an org's full enabled-modules list.
+
+**What this superseded:** the standalone `agent-cloud-api` repo and its `render.yaml` (a second Render service is no longer needed — everything lives in this one deployment). The standalone `agent-hub` WordPress plugin, superseded by a new "Agents" page merged directly into the `engage-ai` plugin (tabs per active niche, same ticket-card/approve-reject-redirect UI, module checkboxes added to the Settings page). Both superseded repos are left in place as-is (not deleted) for reference/history — see their own `ARCHITECTURE.md` for a pointer back here.
+
+**Not yet done:** this new capability has only been verified locally (SQLite, a live Anthropic cycle run for Kurt's own `youtube_channel` niche) — it has not been pushed to the live Render deployment yet, and Render's environment doesn't have `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`/`ENABLE_SCHEDULER`/`CYCLE_INTERVAL_HOURS` set. That's a deploy step requiring explicit sign-off given this is a live, already-used service, not a blank one.
+
 ## 4. Deployment scaffolding
 
 `render.yaml` is the active deploy path (see §3.3). The `Dockerfile` and `docker-compose.yml` remain useful for local development (`docker compose up`).
@@ -53,6 +67,7 @@ A VPS on existing One.com/Bluehost infrastructure was considered first (to avoid
 - **No tests** — none exist yet for auth/organizations/campaigns/content, or for the plugin.
 - **No Alembic migrations in use** — `alembic` is in `requirements.txt` but no migration files exist; currently relies on `Base.metadata.create_all` in `main.py`, which won't handle schema changes cleanly once there's real data in production.
 - ~~Not yet on GitHub / not yet deployed to Render~~ — **live as of 2026-07-07** at `https://engage-ai-api.onrender.com`. Three deploy-time bugs were found and fixed along the way: legacy `starter` Postgres plan (→ `basic-256mb`), psycopg2/psycopg3 driver mismatch (`db/session.py` now rewrites the URL to `postgresql+psycopg://`), and a missing `email-validator` dependency for `EmailStr`.
+- **Modular agent code (§3.4) not yet deployed** — verified locally only; the live Render service doesn't have the new tables, routers, or the `ANTHROPIC_*`/scheduler env vars yet. No tests for the new `agents.py` routes or the module-gating logic either.
 - **Next real step:** point the WordPress plugin's Settings page at this URL and do an end-to-end test (register, create an org, generate content, confirm a WP post gets created).
 
 ## 6. Deferred for later (explicitly not now)

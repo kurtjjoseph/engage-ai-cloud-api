@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -31,6 +32,44 @@ class OrganizationCreate(BaseModel):
 
 class OrganizationOut(OrganizationCreate):
     id: int
+    enabled_modules: list[str] | None = None
+    agent_profiles: dict | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class ModulesUpdate(BaseModel):
+    enabled_modules: list[str]
+
+
+class TicketOut(BaseModel):
+    id: int
+    niche: str
+    title: str
+    rationale: str | None
+    risk: str
+    status: str
+    payload: dict | None
+    decision_note: str | None
+    created_at: datetime
+    decided_at: datetime | None
+
+    class Config:
+        from_attributes = True
+
+
+class TicketDecision(BaseModel):
+    decision: str = Field(description="approve | reject | redirect")
+    note: str | None = None
+
+
+class AgentRunOut(BaseModel):
+    id: int
+    niche: str
+    summary: str | None
+    tickets_created: int
+    ran_at: datetime
 
     class Config:
         from_attributes = True
