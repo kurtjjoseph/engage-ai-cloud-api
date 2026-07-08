@@ -6,10 +6,25 @@ services:
     envVars:
       - key: APP_ENV
         value: production
+      # Baked into onboarding-flow plugin downloads (routers/onboarding.py) as
+      # the URL the plugin connects to - was missing entirely before, which
+      # silently fell back to the "http://localhost:8000" default and would
+      # have shipped broken plugin zips to real customers. Update if the
+      # service ever moves off the Render-assigned domain to a custom one.
+      - key: API_BASE_URL
+        value: https://engage-ai-api.onrender.com
       - key: JWT_SECRET
         generateValue: true
       - key: OPENAI_API_KEY
         sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5
+      - key: ENABLE_SCHEDULER
+        value: "true"
+      - key: CYCLE_INTERVAL_HOURS
+        value: "24"
       - key: DATABASE_URL
         fromDatabase:
           name: engage-ai-db
