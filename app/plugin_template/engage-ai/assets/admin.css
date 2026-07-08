@@ -1,0 +1,97 @@
+.engageai-wrap .nav-tab-wrapper {
+    margin-bottom: 1em;
+}
+
+.engageai-generate-form textarea {
+    width: 100%;
+}
+
+.engageai-channels {
+    margin-top: 1em;
+    padding-top: 1em;
+    border-top: 1px solid #dcdcde;
+}
+
+.engageai-channels h4 {
+    margin-bottom: 0.25em;
+}
+
+.engageai-tickets {
+    display: flex;
+    flex-direction: column;
+    gap: 1em;
+    margin-bottom: 1.5em;
+}
+
+.engageai-card {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 1em 1.25em;
+    max-width: 800px;
+}
+
+.engageai-card h3 {
+    margin-top: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+}
+
+.engageai-risk {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 3px;
+    letter-spacing: 0.03em;
+}
+
+.engageai-risk-low {
+    background: #edf7ed;
+    color: #1e5f2e;
+}
+
+.engageai-risk-high {
+    background: #fbeaea;
+    color: #8a1f1f;
+}
+
+.engageai-rationale {
+    color: #50575e;
+}
+
+.engageai-why {
+    color: #646970;
+}
+
+.engageai-question {
+    background: #fcf9e8;
+    padding: 0.75em 1em;
+    border-radius: 3px;
+}
+
+.engageai-subfields {
+    background: #f6f7f7;
+    padding: 0.5em 0.9em;
+    border-radius: 3px;
+    margin: 0.5em 0;
+}
+
+.engageai-decision-form textarea {
+    width: 100%;
+    max-width: 600px;
+}
+
+.engageai-decision-note {
+    background: #f6f7f7;
+    padding: 0.6em 0.9em;
+    border-radius: 3px;
+}
+
+.engageai-profile-form {
+    margin-bottom: 1.5em;
+}
+
+.engageai-profile-form input[type="text"] {
+    margin-right: 0.5em;
+}

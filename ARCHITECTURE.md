@@ -1,6 +1,6 @@
 # Engage AI — Architecture & Product Decisions
 
-**Status as of this doc:** live in production on Render (`https://engage-ai-api.onrender.com`) for the original church-engagement feature. Locally, the codebase has just been extended with a second, modular capability — autonomous agents for the 8 Claude AI side hustles (§3.4) — verified against a local SQLite database and a live Anthropic key, but **not yet pushed to the live Render service**. Treat pushing this to production as a real deploy decision, not a formality — it's an already-used live system, not a fresh one.
+**Status as of this doc:** live in production on Render (`https://engage-ai-api.onrender.com`). The modular agent capability (§3.4) has been pushed to `main` (Kurt confirmed: no live customers yet, acceptable risk) — Render still needs the `ANTHROPIC_*`/scheduler env vars added before it actually works there. The onboarding/zip-personalization capability (§3.6) is verified locally only and has **not been pushed** — see that section for why it deserves its own explicit go-ahead rather than riding along with the previous push.
 
 ## 1. What Engage AI is
 
@@ -53,7 +53,19 @@ New tables `tickets` and `agent_runs` (both FK'd to `organization_id`, both carr
 
 **What this superseded:** the standalone `agent-cloud-api` repo and its `render.yaml` (a second Render service is no longer needed — everything lives in this one deployment). The standalone `agent-hub` WordPress plugin, superseded by a new "Agents" page merged directly into the `engage-ai` plugin (tabs per active niche, same ticket-card/approve-reject-redirect UI, module checkboxes added to the Settings page). Both superseded repos are left in place as-is (not deleted) for reference/history — see their own `ARCHITECTURE.md` for a pointer back here.
 
-**Not yet done:** this new capability has only been verified locally (SQLite, a live Anthropic cycle run for Kurt's own `youtube_channel` niche) — it has not been pushed to the live Render deployment yet, and Render's environment doesn't have `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`/`ENABLE_SCHEDULER`/`CYCLE_INTERVAL_HOURS` set. That's a deploy step requiring explicit sign-off given this is a live, already-used service, not a blank one.
+**Status:** verified locally (SQLite, a live Anthropic cycle run for Kurt's own `youtube_channel` niche), then pushed to `main`/Render (2026-07-08, Kurt: "go ahead, no live customers yet"). Render's environment still needs `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`/`ENABLE_SCHEDULER`/`CYCLE_INTERVAL_HOURS` added in its dashboard before the agent modules actually do anything there — the code deploying doesn't mean those env vars exist yet.
+
+### 3.5 Onboarding: a signup page that returns a pre-connected plugin zip
+
+Motivated by wanting to get rid of post-install plugin configuration entirely (Kurt: "I don't like the config needed after the plugin is installed in WP"). Rather than the WordPress admin manually connecting (email/password) and then creating/selecting an organization, `GET/POST /onboarding` is a self-contained HTML signup page hosted directly by this API:
+
+- `GET /onboarding` renders a plain HTML form (business/church name, type, email, password) — no JS framework, just server-rendered HTML (`routers/onboarding.py`).
+- `POST /onboarding` creates the `User` + `Organization` (same models as `/auth/register` + `POST /organizations`, just inlined), then calls `services/plugin_packager.build_personalized_zip()`, which copies a bundled template of the plugin (`app/plugin_template/engage-ai/` — **a static copy, not a live checkout of `engage-ai-wordpress`; re-sync with `rsync -a --delete` whenever the plugin changes, or downloads go stale**) and injects a generated `includes/preconfigured.php` containing that org's `api_base_url`/token/`organization_id`. The zip streams back as the HTTP response.
+- The plugin's `register_activation_hook` (in `engage-ai.php`) checks for that file on activation and, if present and not already connected, calls the new `EngageAI_Api_Client::store_token()` to connect automatically — no Settings page visit required at all for a customer who signed up this way.
+
+**Why a separate long-lived token (`services/security.create_long_lived_token`, §... see `config.long_lived_token_expire_minutes` = 1 year):** the standard login token expires after 7 days by design (a human re-logs-in to refresh it). A token baked into a downloaded zip has no login form behind it to refresh anything — using the normal 7-day token here would mean every onboarded site quietly breaks a week after install. This is a deliberate second token type, not a workaround.
+
+**Not yet pushed to Render — deserves its own explicit go-ahead, separate from §3.4's push:** this adds a public, unauthenticated account-creation surface (anyone who finds the URL can register) and an endpoint that reads plugin source off disk and serves it back as a download. Verified locally end-to-end (form loads, submission creates a real user+org, returned zip's baked-in token authenticates against the API) but not yet exposed to the internet.
 
 ## 4. Deployment scaffolding
 

@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-this-secret"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 10080
+    # Baked into downloaded plugin zips (see routers/onboarding.py) instead of
+    # the 7-day login session token above - a customer's WP install can't log
+    # back in to refresh a token, so this one needs to actually last.
+    long_lived_token_expire_minutes: int = 60 * 24 * 365
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"
     anthropic_api_key: str | None = None
