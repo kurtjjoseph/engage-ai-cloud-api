@@ -120,6 +120,8 @@ class AnalyticsSnapshotOut(BaseModel):
     is_baseline: bool
     summary: str | None
     channels: list[dict] | None
+    org_score: int | None
+    org_score_breakdown: list[dict] | None
     sources: list[str] | None
     requested_channels: list[str] | None
     created_at: datetime

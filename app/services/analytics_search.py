@@ -2,34 +2,45 @@ import json
 import re
 from anthropic import Anthropic
 from app.config import settings
+from app.services.analytics_scoring import CHANNEL_KPI_SCHEMA
 
-KNOWN_CHANNELS = [
-    "website", "google_business", "facebook", "instagram",
-    "youtube", "linkedin", "twitter_x", "news_mentions",
-]
+KNOWN_CHANNELS = list(CHANNEL_KPI_SCHEMA.keys())
 
-BASE_PROTOCOL = """You are a digital-presence research analyst. Research the organization
+
+def _schema_block() -> str:
+    lines = []
+    for channel, fields in CHANNEL_KPI_SCHEMA.items():
+        field_desc = ", ".join(f'"{name}": {typ}' for name, typ in fields.items())
+        lines.append(f"  {channel}: {{{field_desc}}}")
+    return "\n".join(lines)
+
+
+BASE_PROTOCOL = f"""You are a digital-presence research analyst. Research the organization
 described in the user message using web search, and report what you find, broken down per channel.
 
 Rules:
-- Only report what you can find real evidence for via search. If a channel isn't found or has no
-  public data, leave it out entirely - never estimate, guess, or invent a number.
-- For each channel found, report whatever concrete numbers are publicly visible (follower count,
-  review count/rating, subscriber count, video count, how recently they posted, etc.) plus one
-  short qualitative note.
+- Only report what you can find real evidence for via search. For any field you cannot find real
+  evidence for, use null (or "none"/false, matching that field's type) - never estimate, guess, or
+  invent a number or an enum value.
+- Every channel you report MUST use exactly this fixed set of fields - no extra fields, no renamed
+  fields, so results are comparable across scans over time:
+{_schema_block()}
+- Where a field is an enum, you MUST use one of the exact listed values, nothing else.
 - If you cite a number from a third-party estimator (e.g. SimilarWeb, a follower-count tracker site)
-  rather than the platform itself, say so explicitly in the note (e.g. "SimilarWeb estimates ~50K
-  monthly visits") - never present a third-party estimate as if it were first-party ground truth.
+  rather than the platform itself, say so explicitly in that channel's "notes" (e.g. "SimilarWeb
+  estimates ~50K monthly visits") - never present a third-party estimate as if it were first-party
+  ground truth. Third-party estimates do NOT go in the fixed KPI fields above unless a field
+  explicitly says otherwise (e.g. website's third_party_traffic_estimate) - mention them in notes.
 - Write a short overall summary (2-4 sentences) of the organization's current public digital footprint.
 - After you finish researching, your FINAL message must be ONLY the JSON object below - no leading
   "here is my report" sentence, no markdown fence, no trailing commentary - matching exactly:
-{
+{{
   "summary": "string",
   "channels": [
-    {"channel": "string", "metrics": {}, "notes": "string"}
+    {{"channel": "string (one of the channel names above)", "kpis": {{...exact fields for that channel...}}, "notes": "string"}}
   ],
   "sources": ["url", "url"]
-}
+}}
 """
 
 # Per-page website visibility ranking (opt-in - see AnalyticsSearchService.scan's
@@ -55,7 +66,7 @@ increasing from there). Be explicit that this is a visibility/discoverability pr
 traffic - do not imply these numbers are real analytics.
 
 Add a "pages" array to the "website" channel's entry in your JSON output:
-{"channel": "website", "metrics": {...}, "notes": "...", "pages": [
+{"channel": "website", "kpis": {...}, "notes": "...", "pages": [
   {"url": "string", "visibility_rank": 1, "signals": {"indexed": true, "ranks_for": ["..."], "backlinks_signal": "...", "freshness_signal": "..."}, "notes": "string"}
 ]}
 """
@@ -99,12 +110,27 @@ def _build_system_prompt(channels: list[str] | None, include_pages: bool) -> str
     if channels:
         prompt += f"\nOnly research these channels, nothing else: {', '.join(channels)}.\n"
     else:
-        prompt += f"\nCheck all of these channels where evidence exists: {', '.join(KNOWN_CHANNELS)}.\n"
+        prompt += f"\nCheck all of these channels: {', '.join(KNOWN_CHANNELS)}.\n"
 
     if include_pages and (not channels or "website" in channels):
         prompt += PAGE_RANKING_ADDENDUM
 
     return prompt
+
+
+def _sanitize_channel_entry(entry: dict) -> dict:
+    """Drops anything Claude reported that isn't in the fixed schema for
+    that channel (extra chatty fields, renamed fields) - keeps only what
+    the scorer knows how to read, plus notes/pages which are separate."""
+    channel = entry.get("channel")
+    schema = CHANNEL_KPI_SCHEMA.get(channel)
+    raw_kpis = entry.get("kpis") or {}
+    kpis = {key: raw_kpis.get(key) for key in schema} if schema else raw_kpis
+
+    cleaned = {"channel": channel, "kpis": kpis, "notes": entry.get("notes", "")}
+    if entry.get("pages"):
+        cleaned["pages"] = entry["pages"]
+    return cleaned
 
 
 class AnalyticsSearchService:
@@ -140,6 +166,8 @@ class AnalyticsSearchService:
             result = _extract_json(text)
         except json.JSONDecodeError:
             result = {"summary": "Scan returned non-JSON output; try again.", "channels": [], "sources": []}
+
+        result["channels"] = [_sanitize_channel_entry(c) for c in result.get("channels", []) if c.get("channel") in CHANNEL_KPI_SCHEMA]
 
         cited = _extract_citations(response)
         if cited:

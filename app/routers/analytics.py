@@ -5,6 +5,7 @@ from app.deps import get_current_user
 from app.models.entities import AnalyticsSnapshot, Organization, User
 from app.routers.organizations import get_owned_org
 from app.schemas import AnalyticsSnapshotOut
+from app.services.analytics_scoring import score_channel, score_org
 from app.services.analytics_search import KNOWN_CHANNELS, AnalyticsSearchService
 
 router = APIRouter(prefix="/organizations/{org_id}/analytics", tags=["analytics"])
@@ -52,6 +53,22 @@ def run_scan(
 
     result = search_service.scan(_org_context(org), channels=valid_channels, include_pages=include_pages)
 
+    scored_channels = []
+    channel_scores: dict[str, int] = {}
+    for entry in result.get("channels", []):
+        score, breakdown = score_channel(entry.get("channel"), entry.get("kpis"))
+        channel_scores[entry.get("channel")] = score
+        scored_channels.append({**entry, "score": score, "score_breakdown": breakdown})
+
+    # An org score built from a channel-scoped scan would silently treat every
+    # unchecked channel as 0 (score_org's "missing = 0" rule, correct for a full
+    # sweep, misleading here) - only a full sweep has enough data to represent
+    # the whole org, so a scoped scan just doesn't get an org_score at all.
+    if valid_channels is None:
+        org_score, org_breakdown = score_org(channel_scores)
+    else:
+        org_score, org_breakdown = None, None
+
     is_first = (
         db.query(AnalyticsSnapshot).filter(AnalyticsSnapshot.organization_id == org.id).first() is None
     )
@@ -60,7 +77,9 @@ def run_scan(
         organization_id=org.id,
         is_baseline=is_first,
         summary=result.get("summary"),
-        channels=result.get("channels", []),
+        channels=scored_channels,
+        org_score=org_score,
+        org_score_breakdown=org_breakdown,
         sources=result.get("sources", []),
         requested_channels=valid_channels,
     )
