@@ -34,6 +34,18 @@ class EngageAI_Admin_Analytics
         add_action('admin_post_engageai_run_analytics_scan', [$this, 'handle_run_scan']);
     }
 
+    /** Kept in sync with KNOWN_CHANNELS in the API's services/analytics_search.py. */
+    private const CHANNELS = [
+        'website' => 'Website',
+        'google_business' => 'Google Business (reviews)',
+        'facebook' => 'Facebook',
+        'instagram' => 'Instagram',
+        'youtube' => 'YouTube',
+        'linkedin' => 'LinkedIn',
+        'twitter_x' => 'X / Twitter',
+        'news_mentions' => 'News mentions',
+    ];
+
     public function handle_run_scan(): void
     {
         $this->verify_request('engageai_run_analytics_scan');
@@ -43,7 +55,14 @@ class EngageAI_Admin_Analytics
             $this->redirect_with_notice('error', __('Select an organization first.', 'engage-ai'));
         }
 
-        $result = $this->client->run_analytics_scan($org_id);
+        $submitted = array_map('sanitize_key', (array) ($_POST['engageai_channels'] ?? []));
+        $channels = array_values(array_intersect($submitted, array_keys(self::CHANNELS)));
+        // empty $channels means "full sweep", which already includes website - only
+        // block include_pages when channels were explicitly narrowed to exclude it.
+        $website_in_scope = empty($channels) || in_array('website', $channels, true);
+        $include_pages = !empty($_POST['engageai_include_pages']) && $website_in_scope;
+
+        $result = $this->client->run_analytics_scan($org_id, $channels, $include_pages);
         if (is_wp_error($result)) {
             $this->redirect_with_notice('error', $result->get_error_message());
         }
@@ -98,8 +117,26 @@ class EngageAI_Admin_Analytics
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin: 1em 0;">
                 <input type="hidden" name="action" value="engageai_run_analytics_scan">
                 <?php wp_nonce_field('engageai_run_analytics_scan'); ?>
+
+                <p><strong><?php esc_html_e('Channels to scan (leave all unchecked for the full sweep):', 'engage-ai'); ?></strong></p>
+                <p>
+                    <?php foreach (self::CHANNELS as $key => $label): ?>
+                        <label style="margin-right: 1.25em; display: inline-block;">
+                            <input type="checkbox" name="engageai_channels[]" value="<?php echo esc_attr($key); ?>" class="engageai-channel-checkbox">
+                            <?php echo esc_html($label); ?>
+                        </label>
+                    <?php endforeach; ?>
+                </p>
+                <p>
+                    <label>
+                        <input type="checkbox" name="engageai_include_pages" value="1">
+                        <?php esc_html_e('Include per-page website visibility ranking', 'engage-ai'); ?>
+                    </label>
+                    <span class="description"> - <?php esc_html_e('discovers individual pages and ranks them by public visibility signals (indexed, ranks for, backlinks, freshness). Not real traffic - web search cannot see actual analytics. Costs more, only applies if Website is in scope.', 'engage-ai'); ?></span>
+                </p>
+
                 <?php submit_button(__('Run new scan', 'engage-ai'), 'primary', 'submit', false); ?>
-                <p class="description"><?php esc_html_e('Searches the web for this organization\'s public presence (website, social profiles, reviews, etc.) and records what it finds. The first scan becomes the baseline every later scan is compared against.', 'engage-ai'); ?></p>
+                <p class="description"><?php esc_html_e('Searches the web for this organization\'s public presence and records what it finds. The first scan becomes the baseline every later scan is compared against.', 'engage-ai'); ?></p>
             </form>
 
             <?php if (!$latest): ?>
@@ -112,6 +149,17 @@ class EngageAI_Admin_Analytics
                     <?php endif; ?>
                 </h2>
                 <p class="engageai-rationale"><?php echo esc_html($latest['created_at'] ?? ''); ?></p>
+                <?php if (!empty($latest['requested_channels'])): ?>
+                    <p class="description">
+                        <?php
+                        printf(
+                            /* translators: %s: comma-separated list of channel labels */
+                            esc_html__('Scope: %s only', 'engage-ai'),
+                            esc_html(implode(', ', array_map([$this, 'channel_label'], $latest['requested_channels'])))
+                        );
+                        ?>
+                    </p>
+                <?php endif; ?>
                 <?php if (!empty($latest['summary'])): ?>
                     <p><?php echo esc_html($latest['summary']); ?></p>
                 <?php endif; ?>
@@ -130,6 +178,9 @@ class EngageAI_Admin_Analytics
                                 <?php endif; ?>
                                 <?php if (!empty($channel['notes'])): ?>
                                     <p class="engageai-why"><em><?php echo esc_html($channel['notes']); ?></em></p>
+                                <?php endif; ?>
+                                <?php if (!empty($channel['pages']) && is_array($channel['pages'])): ?>
+                                    <?php $this->render_page_ranking($channel['pages']); ?>
                                 <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
@@ -167,6 +218,7 @@ class EngageAI_Admin_Analytics
                         <tr>
                             <th><?php esc_html_e('When', 'engage-ai'); ?></th>
                             <th><?php esc_html_e('Baseline?', 'engage-ai'); ?></th>
+                            <th><?php esc_html_e('Scope', 'engage-ai'); ?></th>
                             <th><?php esc_html_e('Summary', 'engage-ai'); ?></th>
                         </tr>
                     </thead>
@@ -175,6 +227,7 @@ class EngageAI_Admin_Analytics
                             <tr>
                                 <td><?php echo esc_html($s['created_at'] ?? ''); ?></td>
                                 <td><?php echo !empty($s['is_baseline']) ? esc_html__('Yes', 'engage-ai') : ''; ?></td>
+                                <td><?php echo !empty($s['requested_channels']) ? esc_html(implode(', ', array_map([$this, 'channel_label'], $s['requested_channels']))) : esc_html__('All', 'engage-ai'); ?></td>
                                 <td><?php echo esc_html($s['summary'] ?? ''); ?></td>
                             </tr>
                         <?php endforeach; ?>
@@ -187,17 +240,54 @@ class EngageAI_Admin_Analytics
 
     private function channel_label(string $channel): string
     {
-        $labels = [
-            'website' => __('Website', 'engage-ai'),
-            'google_business' => __('Google Business (reviews)', 'engage-ai'),
-            'facebook' => __('Facebook', 'engage-ai'),
-            'instagram' => __('Instagram', 'engage-ai'),
-            'youtube' => __('YouTube', 'engage-ai'),
-            'linkedin' => __('LinkedIn', 'engage-ai'),
-            'twitter_x' => __('X / Twitter', 'engage-ai'),
-            'news_mentions' => __('News mentions', 'engage-ai'),
-        ];
-        return $labels[$channel] ?? ucwords(str_replace('_', ' ', $channel));
+        return self::CHANNELS[$channel] ?? ucwords(str_replace('_', ' ', $channel));
+    }
+
+    /**
+     * @param array<int, array{url?: string, visibility_rank?: int, signals?: array, notes?: string}> $pages
+     */
+    private function render_page_ranking(array $pages): void
+    {
+        usort($pages, static fn($a, $b) => ($a['visibility_rank'] ?? 999) <=> ($b['visibility_rank'] ?? 999));
+        ?>
+        <p><strong><?php esc_html_e('Page visibility ranking:', 'engage-ai'); ?></strong>
+            <span class="description"><?php esc_html_e('(public discoverability signals, not real traffic)', 'engage-ai'); ?></span>
+        </p>
+        <table class="widefat striped">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e('#', 'engage-ai'); ?></th>
+                    <th><?php esc_html_e('Page', 'engage-ai'); ?></th>
+                    <th><?php esc_html_e('Signals', 'engage-ai'); ?></th>
+                    <th><?php esc_html_e('Notes', 'engage-ai'); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($pages as $page): ?>
+                    <tr>
+                        <td><?php echo esc_html((string) ($page['visibility_rank'] ?? '')); ?></td>
+                        <td>
+                            <?php if (!empty($page['url'])): ?>
+                                <a href="<?php echo esc_url($page['url']); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html($page['url']); ?></a>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if (!empty($page['signals']) && is_array($page['signals'])): ?>
+                                <?php foreach ($page['signals'] as $key => $value): ?>
+                                    <?php if (is_scalar($value)): ?>
+                                        <div><strong><?php echo esc_html(ucwords(str_replace('_', ' ', (string) $key))); ?>:</strong> <?php echo esc_html((string) $value); ?></div>
+                                    <?php elseif (is_array($value)): ?>
+                                        <div><strong><?php echo esc_html(ucwords(str_replace('_', ' ', (string) $key))); ?>:</strong> <?php echo esc_html(implode(', ', array_filter($value, 'is_scalar'))); ?></div>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo esc_html($page['notes'] ?? ''); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php
     }
 
     private function render_not_ready(string $message): void

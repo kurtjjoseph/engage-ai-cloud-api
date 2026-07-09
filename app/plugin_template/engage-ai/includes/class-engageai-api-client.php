@@ -122,11 +122,24 @@ class EngageAI_Api_Client
     }
 
     /**
+     * @param string[] $channels empty = full sweep, otherwise scopes the scan (e.g. ["website"])
+     * @param bool $include_pages adds a per-page visibility ranking to the website channel - costs more
      * @return array|WP_Error
      */
-    public function run_analytics_scan(int $org_id)
+    public function run_analytics_scan(int $org_id, array $channels = [], bool $include_pages = false)
     {
-        return $this->request('POST', '/organizations/' . $org_id . '/analytics/scan');
+        $query = [];
+        foreach ($channels as $channel) {
+            $query[] = 'channels=' . rawurlencode($channel);
+        }
+        if ($include_pages) {
+            $query[] = 'include_pages=true';
+        }
+        $path = '/organizations/' . $org_id . '/analytics/scan';
+        if (!empty($query)) {
+            $path .= '?' . implode('&', $query);
+        }
+        return $this->request('POST', $path);
     }
 
     /**

@@ -121,6 +121,7 @@ class AnalyticsSnapshotOut(BaseModel):
     summary: str | None
     channels: list[dict] | None
     sources: list[str] | None
+    requested_channels: list[str] | None
     created_at: datetime
 
     class Config:

@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.deps import get_current_user
 from app.models.entities import AnalyticsSnapshot, Organization, User
 from app.routers.organizations import get_owned_org
 from app.schemas import AnalyticsSnapshotOut
-from app.services.analytics_search import AnalyticsSearchService
+from app.services.analytics_search import KNOWN_CHANNELS, AnalyticsSearchService
 
 router = APIRouter(prefix="/organizations/{org_id}/analytics", tags=["analytics"])
 
@@ -34,13 +34,23 @@ def _org_context(org: Organization) -> dict:
 
 
 @router.post("/scan", response_model=AnalyticsSnapshotOut)
-def run_scan(org_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def run_scan(
+    org_id: int,
+    channels: list[str] | None = Query(None, description=f"Scope the scan to specific channels: {', '.join(KNOWN_CHANNELS)}. Omit for the full sweep."),
+    include_pages: bool = Query(False, description="Adds a per-page visibility ranking to the website channel. Only applies when 'website' is in scope. Costs more (more searches, bigger response)."),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """Runs one web-search-based scan now. The first scan for an org is
     flagged as its baseline; every later scan is meant to be compared
     against that fixed reference point."""
     org = get_analytics_enabled_org(org_id, db, user)
 
-    result = search_service.scan(_org_context(org))
+    valid_channels = [c for c in channels if c in KNOWN_CHANNELS] if channels else None
+    if channels and not valid_channels:
+        raise HTTPException(status_code=400, detail=f"None of the requested channels are recognized. Valid channels: {', '.join(KNOWN_CHANNELS)}")
+
+    result = search_service.scan(_org_context(org), channels=valid_channels, include_pages=include_pages)
 
     is_first = (
         db.query(AnalyticsSnapshot).filter(AnalyticsSnapshot.organization_id == org.id).first() is None
@@ -52,6 +62,7 @@ def run_scan(org_id: int, db: Session = Depends(get_db), user: User = Depends(ge
         summary=result.get("summary"),
         channels=result.get("channels", []),
         sources=result.get("sources", []),
+        requested_channels=valid_channels,
     )
     db.add(snapshot)
     db.commit()

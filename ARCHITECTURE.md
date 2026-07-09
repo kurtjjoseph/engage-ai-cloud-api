@@ -88,6 +88,18 @@ Kurt asked for an "update plugin" button; the real options were (a) a custom but
 - Plugin-side wiring in `engage-ai.php` is guarded by `file_exists()` on the PUC library path (`includes/plugin-update-checker/`) - that library is third-party code not committed to this repo (per an earlier decision that pulling it in needs explicit sign-off), so it has to be dropped in manually. Until then this is a complete no-op; the rest of the plugin is unaffected. The moment the library is added, update checking activates automatically - no further code change needed on either side.
 - **Not yet tested**: whether WordPress's native updater actually shows "Update Now" and installs correctly once PUC is present - blocked on that manual step, and this is exactly the kind of WordPress-core-API interaction this environment can't verify the way the FastAPI endpoints were (register/create/decide/list all confirmed working end-to-end; this piece has only been confirmed as "correctly wired and safely inert until PUC exists").
 
+### 3.8 Analytics scope control + per-page visibility ranking
+
+Two extensions to §3.6, both requested together: (1) scan just specific channels instead of always the full 8-channel sweep, and (2) rank individual website pages by performance.
+
+**Channel filtering**: `POST /organizations/{id}/analytics/scan` accepts an optional `channels` query param (repeatable, e.g. `?channels=website&channels=youtube`). Validated against `analytics_search.KNOWN_CHANNELS` (400 if none recognized). `AnalyticsSnapshot.requested_channels` stores what was asked for (`null` = full sweep) so the UI can show scan scope in both the latest-scan view and history table.
+
+**Per-page "performance" - deliberately reframed as visibility ranking, not traffic ranking.** Real per-page performance (page views, bounce rate, conversions) lives in Google Analytics/Search Console, which is private and inaccessible to web search - no prompt engineering gets around that. What's honest and buildable: rank pages by *public discoverability* signals - indexed?, what it ranks for, backlink/citation signals, content freshness, and any third-party traffic estimate *if found, explicitly attributed to its source* (e.g. "Semrush estimates ~27M/mo" - never presented as ground truth). Opt-in via `include_pages=true` (only applies when `website` is in scope), because it's a materially heavier call: `max_uses` 8→16 searches, `max_tokens` 4096→8192, ranks up to 12 pages.
+
+Real GA/Search Console integration (actual traffic data) was explicitly deferred as a separate, materially bigger future project (OAuth flow, Google API credentials) - see §6.
+
+**Verified against a real scan** (Anthropic's site, `channels=website&include_pages=true`): 12 real pages discovered and ranked (homepage, newsroom, careers, research, pricing, product pages, policy pages), each with real signals and notes, third-party traffic estimates correctly attributed and flagged as non-authoritative ("Semrush ~27M/mo vs. instantdomainsearch ~484K/mo... treated as rough estimates"), `requested_channels` correctly scoped to `["website"]` only.
+
 ## 4. Deployment scaffolding
 
 `render.yaml` is the active deploy path (see §3.3). The `Dockerfile` and `docker-compose.yml` remain useful for local development (`docker compose up`).
@@ -100,10 +112,11 @@ Kurt asked for an "update plugin" button; the real options were (a) a custom but
 - **No tests** — none exist yet for auth/organizations/campaigns/content, or for the plugin.
 - **No Alembic migrations in use** — `alembic` is in `requirements.txt` but no migration files exist. This was a real incident, not a hypothetical: `Base.metadata.create_all()` only creates missing *tables*, never adds columns to a table that already has rows — when `Organization` gained `enabled_modules`/`agent_profiles` (§3.4) after production already had real org rows, every endpoint touching `Organization` started 500ing with `UndefinedColumn`. Fixed in two parts: a one-time manual `ALTER TABLE` to unblock production immediately, plus `db/migrate.py`'s `sync_missing_columns()` (called right after `create_all()` in `main.py`) as an ongoing stopgap — it diffs each model's columns against the live Postgres table on every startup and adds whatever's missing. Real Alembic migrations are still the correct long-term fix (this stopgap can't handle column *removals*, *renames*, or type changes, only additions) but this closes the specific failure mode that already happened once.
 - ~~Not yet on GitHub / not yet deployed to Render~~ — **live as of 2026-07-07** at `https://engage-ai-api.onrender.com`. Three deploy-time bugs were found and fixed along the way: legacy `starter` Postgres plan (→ `basic-256mb`), psycopg2/psycopg3 driver mismatch (`db/session.py` now rewrites the URL to `postgresql+psycopg://`), and a missing `email-validator` dependency for `EmailStr`.
-- **Modular agent code (§3.4) not yet deployed** — verified locally only; the live Render service doesn't have the new tables, routers, or the `ANTHROPIC_*`/scheduler env vars yet. No tests for the new `agents.py` routes or the module-gating logic either.
-- **Next real step:** point the WordPress plugin's Settings page at this URL and do an end-to-end test (register, create an org, generate content, confirm a WP post gets created).
+- ~~Modular agent code (§3.4) not yet deployed~~ — pushed and live (2026-07-08). `ANTHROPIC_API_KEY` set in the Render dashboard and confirmed working via a real cycle run.
+- **No automated tests anywhere in this repo** — everything verified so far (agents, onboarding, analytics, plugin updates) was manual curl/script testing during the session that built it, not a checked-in test suite. Fine while one person is both building and verifying, but worth fixing before onboarding real external customers.
 
 ## 6. Deferred for later (explicitly not now)
 
 - Standalone web dashboard (self-service beyond WordPress) — architecture supports it later since the API is generic, but not being built now.
 - Self-serve Stripe billing — deferred until manual/bundled billing becomes a bottleneck.
+- Real Google Analytics/Search Console integration for actual per-page traffic data (§3.8) — explicitly chosen as a separate future project over the web-search visibility ranking, since it needs OAuth + Google API credentials, materially bigger scope than anything else in the analytics module.

@@ -123,10 +123,15 @@ class AnalyticsSnapshot(Base):
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
     is_baseline: Mapped[bool] = mapped_column(Boolean, default=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # list of {"channel": str, "metrics": {...}, "notes": str}
+    # list of {"channel": str, "metrics": {...}, "notes": str, "pages": [...]? }
+    # "pages" only appears on the "website" entry when include_pages was set -
+    # see services/analytics_search.py's PAGE_RANKING_ADDENDUM.
     channels: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # list of URLs the search drew on, for the admin to verify claims against
     sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # None = full 8-channel sweep (the default); otherwise the specific
+    # channels this scan was scoped to, e.g. ["website"].
+    requested_channels: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     organization = relationship("Organization", back_populates="analytics_snapshots")
