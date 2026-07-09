@@ -172,6 +172,7 @@ class EngageAI_Admin_Dashboard
                         </span>
                     <?php endif; ?>
                 </p>
+                <?php $this->render_radar_chart($insights); ?>
                 <table class="widefat striped">
                     <thead>
                         <tr>
@@ -294,6 +295,112 @@ class EngageAI_Admin_Dashboard
     {
         $channels = EngageAI_Admin_Analytics::channels();
         return $channels[$channel] ?? ucwords(str_replace('_', ' ', $channel));
+    }
+
+    /** Shortened labels for the radar chart only - the full names (e.g.
+     * "Google Business (reviews)") run too long for a fixed-radius axis
+     * label. The table below keeps the full name. */
+    private const RADAR_SHORT_LABELS = [
+        'google_business' => 'Google Business',
+        'twitter_x' => 'X/Twitter',
+        'news_mentions' => 'News',
+    ];
+
+    private const RADAR_COLOR = '#2a78d6';
+    private const RADAR_GRID_COLOR = '#dcdcde';
+    private const RADAR_LABEL_COLOR = '#50575e';
+
+    /**
+     * A single-series radar/spider chart of the current per-channel scores,
+     * one axis per channel in a fixed order (not rank order, which would
+     * rotate the shape unpredictably between scans). Exact numbers stay in
+     * the table right below it - this is the "shape at a glance" view, not
+     * the precise one. No JS: axis labels are static text, and each vertex
+     * carries a native SVG <title> for a hover tooltip.
+     */
+    private function render_radar_chart(array $insights): void
+    {
+        $channels = EngageAI_Admin_Analytics::channels();
+        $keys = array_keys($channels);
+        $count = count($keys);
+        if ($count < 3) {
+            return;
+        }
+
+        $scores = [];
+        foreach ($insights['ranking'] ?? [] as $r) {
+            if (!empty($r['channel'])) {
+                $scores[$r['channel']] = (float) ($r['score'] ?? 0);
+            }
+        }
+
+        $cx = 230;
+        $cy = 230;
+        $max_radius = 125;
+        $label_radius = 160;
+
+        $axis_points = [];
+        $data_points = [];
+        $labels = [];
+        foreach ($keys as $i => $key) {
+            $rad = deg2rad(-90 + (360 / $count) * $i);
+            $cos = cos($rad);
+            $sin = sin($rad);
+
+            $axis_points[] = $this->polar_point($cx, $cy, $max_radius, $cos, $sin);
+
+            $score = max(0, min(100, $scores[$key] ?? 0));
+            $data_points[] = $this->polar_point($cx, $cy, $max_radius * ($score / 100), $cos, $sin);
+
+            $labels[] = [
+                'x' => round($cx + $label_radius * $cos, 1),
+                'y' => round($cy + $label_radius * $sin, 1),
+                'anchor' => $cos > 0.15 ? 'start' : ($cos < -0.15 ? 'end' : 'middle'),
+                'dy' => $sin < -0.5 ? -2 : ($sin > 0.5 ? 12 : 4),
+                'text' => self::RADAR_SHORT_LABELS[$key] ?? $channels[$key],
+            ];
+        }
+
+        $rings = [];
+        foreach ([0.25, 0.5, 0.75, 1.0] as $fraction) {
+            $ring_points = [];
+            foreach ($keys as $i => $key) {
+                $rad = deg2rad(-90 + (360 / $count) * $i);
+                $p = $this->polar_point($cx, $cy, $max_radius * $fraction, cos($rad), sin($rad));
+                $ring_points[] = $p[0] . ',' . $p[1];
+            }
+            $rings[] = implode(' ', $ring_points);
+        }
+
+        $data_points_str = implode(' ', array_map(static fn($p) => $p[0] . ',' . $p[1], $data_points));
+        ?>
+        <div class="engageai-radar">
+            <svg viewBox="0 0 460 460" role="img" aria-label="<?php esc_attr_e('Radar chart of current per-channel engagement scores', 'engage-ai'); ?>">
+                <?php foreach ($rings as $ring): ?>
+                    <polygon points="<?php echo esc_attr($ring); ?>" fill="none" stroke="<?php echo esc_attr(self::RADAR_GRID_COLOR); ?>" stroke-width="1"></polygon>
+                <?php endforeach; ?>
+                <?php foreach ($axis_points as $p): ?>
+                    <line x1="<?php echo esc_attr((string) $cx); ?>" y1="<?php echo esc_attr((string) $cy); ?>" x2="<?php echo esc_attr((string) $p[0]); ?>" y2="<?php echo esc_attr((string) $p[1]); ?>" stroke="<?php echo esc_attr(self::RADAR_GRID_COLOR); ?>" stroke-width="1"></line>
+                <?php endforeach; ?>
+                <polygon points="<?php echo esc_attr($data_points_str); ?>" fill="<?php echo esc_attr(self::RADAR_COLOR); ?>" fill-opacity="0.18" stroke="<?php echo esc_attr(self::RADAR_COLOR); ?>" stroke-width="2"></polygon>
+                <?php foreach ($data_points as $i => $p): ?>
+                    <?php $key = $keys[$i]; ?>
+                    <circle cx="<?php echo esc_attr((string) $p[0]); ?>" cy="<?php echo esc_attr((string) $p[1]); ?>" r="4" fill="<?php echo esc_attr(self::RADAR_COLOR); ?>" stroke="#fff" stroke-width="1.5">
+                        <title><?php echo esc_html($channels[$key] . ': ' . (string) ($scores[$key] ?? 0)); ?></title>
+                    </circle>
+                <?php endforeach; ?>
+                <?php foreach ($labels as $l): ?>
+                    <text x="<?php echo esc_attr((string) $l['x']); ?>" y="<?php echo esc_attr((string) $l['y']); ?>" dy="<?php echo esc_attr((string) $l['dy']); ?>" text-anchor="<?php echo esc_attr($l['anchor']); ?>" font-size="11" fill="<?php echo esc_attr(self::RADAR_LABEL_COLOR); ?>"><?php echo esc_html($l['text']); ?></text>
+                <?php endforeach; ?>
+            </svg>
+        </div>
+        <?php
+    }
+
+    /** @return array{0: float, 1: float} */
+    private function polar_point(float $cx, float $cy, float $radius, float $cos, float $sin): array
+    {
+        return [round($cx + $radius * $cos, 1), round($cy + $radius * $sin, 1)];
     }
 
     private function render_score_badge($score): void

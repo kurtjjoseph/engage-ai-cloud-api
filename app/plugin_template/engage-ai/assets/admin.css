@@ -170,3 +170,13 @@
     align-items: center;
     margin: 1em 0;
 }
+
+.engageai-radar {
+    max-width: 460px;
+    margin: 1em 0 1.5em;
+}
+
+.engageai-radar svg {
+    width: 100%;
+    height: auto;
+}
