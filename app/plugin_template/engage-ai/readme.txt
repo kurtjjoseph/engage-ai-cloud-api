@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.3.0
+Stable tag: 0.4.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -27,6 +27,10 @@ Engage AI connects your WordPress site to the Engage AI Cloud API. It does three
 6. Go to Engage AI > Generate Content for the church-engagement generators, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.4.0 =
+* Analytics scans can now be scoped to specific channels instead of always running the full sweep.
+* Added an opt-in per-page website visibility ranking (indexed status, keyword rankings, backlink/freshness signals, attributed third-party traffic estimates) - explicitly a discoverability proxy, not real analytics.
 
 = 0.3.0 =
 * Added the Analytics module: web-search-based per-channel digital footprint scans, with the first scan flagged as a baseline for later comparison.
