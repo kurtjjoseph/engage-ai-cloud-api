@@ -34,6 +34,14 @@ class Organization(Base):
     # right organization instead of guessing from name alone - optional, but
     # search precision drops a lot without it for common org names.
     website_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Per-channel profile URL/handle the org has actually set up, e.g.
+    # {"facebook": "https://facebook.com/...", "twitter_x": "@handle", ...}.
+    # Same anchoring purpose as website_url above but per channel - passed
+    # into the analytics search context (routers/analytics.py) so a channel
+    # with a known handle gets verified/searched directly instead of guessed
+    # from the org name. Optional; a channel with nothing set here just falls
+    # back to name-based search like before this field existed.
+    channel_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Modular activation: which capabilities this org has turned on, e.g.

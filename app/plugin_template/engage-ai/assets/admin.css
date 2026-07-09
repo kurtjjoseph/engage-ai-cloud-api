@@ -64,6 +64,10 @@
     color: #646970;
 }
 
+.engageai-channel-links {
+    font-size: 13px;
+}
+
 .engageai-question {
     background: #fcf9e8;
     padding: 0.75em 1em;

@@ -29,6 +29,7 @@ def _org_context(org: Organization) -> dict:
         "name": org.name,
         "org_type": org.org_type,
         "website_url": org.website_url,
+        "channel_details": org.channel_details,
         "mission": org.mission,
         "audience": org.audience,
         "locations": org.locations,

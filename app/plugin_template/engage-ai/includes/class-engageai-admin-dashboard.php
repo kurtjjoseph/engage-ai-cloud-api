@@ -286,8 +286,44 @@ class EngageAI_Admin_Dashboard
             <?php if (!empty($t['rationale'])): ?>
                 <p class="engageai-rationale"><em><?php echo esc_html($t['rationale']); ?></em></p>
             <?php endif; ?>
+            <?php $this->render_channel_links($t['payload'] ?? []); ?>
             <p><a href="<?php echo esc_url($agents_url); ?>" class="button button-primary"><?php esc_html_e('Review & decide', 'engage-ai'); ?></a></p>
         </div>
+        <?php
+    }
+
+    /**
+     * For engagement_growth tickets (payload.channel present): a link back
+     * to where the org's profile URL/handle for that channel gets recorded
+     * once it exists, plus - for a "set this channel up from scratch" ticket
+     * - a live link to that platform's own signup/creation flow, so the
+     * ticket is something to act on immediately, not just read.
+     */
+    private function render_channel_links(array $payload): void
+    {
+        $channel = $payload['channel'] ?? '';
+        if ($channel === '') {
+            return;
+        }
+
+        $settings_url = admin_url('admin.php?page=engageai-settings') . '#engageai-channel-' . $channel;
+        $signup_urls = EngageAI_Admin_Analytics::signup_urls();
+        ?>
+        <p class="engageai-channel-links">
+            <a href="<?php echo esc_url($settings_url); ?>"><?php esc_html_e('Update channel details', 'engage-ai'); ?></a>
+            <?php if (($payload['action_type'] ?? '') === 'channel_setup_guidance' && !empty($signup_urls[$channel])): ?>
+                &nbsp;|&nbsp;
+                <a href="<?php echo esc_url($signup_urls[$channel]); ?>" target="_blank" rel="noopener noreferrer">
+                    <?php
+                    printf(
+                        /* translators: %s: channel name, e.g. "Instagram" */
+                        esc_html__('Sign up for %s ↗', 'engage-ai'),
+                        esc_html($this->channel_label($channel))
+                    );
+                    ?>
+                </a>
+            <?php endif; ?>
+        </p>
         <?php
     }
 

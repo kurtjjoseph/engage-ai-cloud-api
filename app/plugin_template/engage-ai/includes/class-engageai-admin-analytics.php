@@ -64,6 +64,26 @@ class EngageAI_Admin_Analytics
         return self::CHANNELS;
     }
 
+    /**
+     * Where to actually go create a profile on a channel that has none yet -
+     * shown on "set up this channel from scratch" tickets (Dashboard,
+     * Agents) alongside the link back to Settings for recording the result.
+     * No entry for website (it's the org's own site, not a signup flow) or
+     * news_mentions (press coverage isn't something you sign up for).
+     * @return array<string, string>
+     */
+    public static function signup_urls(): array
+    {
+        return [
+            'google_business' => 'https://business.google.com/create',
+            'facebook' => 'https://www.facebook.com/pages/creation/',
+            'instagram' => 'https://www.instagram.com/accounts/emailsignup/',
+            'youtube' => 'https://www.youtube.com/create_channel',
+            'linkedin' => 'https://www.linkedin.com/company/setup/new/',
+            'twitter_x' => 'https://x.com/i/flow/signup',
+        ];
+    }
+
     public function handle_run_scan(): void
     {
         $this->verify_request('engageai_run_analytics_scan');

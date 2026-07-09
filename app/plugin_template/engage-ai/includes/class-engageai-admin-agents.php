@@ -400,16 +400,19 @@ class EngageAI_Admin_Agents
      */
     private function render_engagement_growth_payload(array $payload): void
     {
-        $channel = isset($payload['channel']) ? ucwords(str_replace('_', ' ', (string) $payload['channel'])) : '';
+        $channel_key = (string) ($payload['channel'] ?? '');
+        $channel_label = $channel_key !== '' ? ucwords(str_replace('_', ' ', $channel_key)) : '';
         $current = $payload['current_score'] ?? null;
         $target = $payload['target_score'] ?? null;
-        if ($channel !== '') {
-            echo '<p><strong>' . esc_html__('Channel:', 'engage-ai') . '</strong> ' . esc_html($channel);
+        if ($channel_label !== '') {
+            echo '<p><strong>' . esc_html__('Channel:', 'engage-ai') . '</strong> ' . esc_html($channel_label);
             if ($current !== null) {
                 echo ' &mdash; ' . esc_html(sprintf(__('score %1$s%2$s', 'engage-ai'), (string) $current, $target !== null ? sprintf(__(' (target %s)', 'engage-ai'), (string) $target) : ''));
             }
             echo '</p>';
         }
+
+        $this->render_channel_links($channel_key, (string) ($payload['action_type'] ?? ''));
 
         if ($payload['action_type'] === 'channel_setup_guidance' && !empty($payload['steps']) && is_array($payload['steps'])) {
             echo '<p><strong>' . esc_html__('First-week setup plan:', 'engage-ai') . '</strong></p><ol>';
@@ -424,6 +427,39 @@ class EngageAI_Admin_Agents
         if ($payload['action_type'] === 'content_idea' && !empty($payload['content']) && is_string($payload['content'])) {
             echo '<div class="engageai-subfields"><p>' . nl2br(esc_html($payload['content'])) . '</p></div>';
         }
+    }
+
+    /**
+     * A link back to where the org's profile URL/handle for this channel
+     * gets recorded once it exists, plus - for a "set this channel up from
+     * scratch" ticket - a live link to that platform's own signup/creation
+     * flow, so the ticket is something to act on immediately, not just read.
+     */
+    private function render_channel_links(string $channel, string $action_type): void
+    {
+        if ($channel === '') {
+            return;
+        }
+
+        $settings_url = admin_url('admin.php?page=engageai-settings') . '#engageai-channel-' . $channel;
+        $signup_urls = EngageAI_Admin_Analytics::signup_urls();
+        ?>
+        <p class="engageai-channel-links">
+            <a href="<?php echo esc_url($settings_url); ?>"><?php esc_html_e('Update channel details', 'engage-ai'); ?></a>
+            <?php if ($action_type === 'channel_setup_guidance' && !empty($signup_urls[$channel])): ?>
+                &nbsp;|&nbsp;
+                <a href="<?php echo esc_url($signup_urls[$channel]); ?>" target="_blank" rel="noopener noreferrer">
+                    <?php
+                    printf(
+                        /* translators: %s: channel name, e.g. "Instagram" */
+                        esc_html__('Sign up for %s ↗', 'engage-ai'),
+                        esc_html(ucwords(str_replace('_', ' ', $channel)))
+                    );
+                    ?>
+                </a>
+            <?php endif; ?>
+        </p>
+        <?php
     }
 
     private function render_not_ready(string $message): void

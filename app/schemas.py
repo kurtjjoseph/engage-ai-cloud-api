@@ -29,6 +29,8 @@ class OrganizationCreate(BaseModel):
     locations: list[dict] | None = None
     speakers: list[dict] | None = None
     website_url: str | None = None
+    # Per-channel profile URL/handle, e.g. {"facebook": "https://...", "twitter_x": "@handle"}.
+    channel_details: dict | None = None
     # Goal-setting for the engagement_growth agent niche - included here (not
     # a separate schema) so the existing generic PATCH /organizations/{id}
     # can set them like any other org field.

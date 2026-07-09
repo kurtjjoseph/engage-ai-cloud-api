@@ -22,6 +22,10 @@ Rules:
 - Only report what you can find real evidence for via search. For any field you cannot find real
   evidence for, use null (or "none"/false, matching that field's type) - never estimate, guess, or
   invent a number or an enum value.
+- If the organization's context includes "channel_details" with a URL or handle for a channel,
+  that is the organization's own confirmed profile for that channel - go to it directly and verify
+  it (don't just search by org name and hope you land on the right profile among same-named ones).
+  A channel with nothing in channel_details still gets researched via ordinary search.
 - Every channel you report MUST use exactly this fixed set of fields - no extra fields, no renamed
   fields, so results are comparable across scans over time:
 {_schema_block()}
