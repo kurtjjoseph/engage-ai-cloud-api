@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.5.0
+ * Version: 0.7.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.5.0');
+define('ENGAGEAI_VERSION', '0.7.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -21,6 +21,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-settings.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-generate.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-agents.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-analytics.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-dashboard.php';
 
 /**
  * Native WordPress "Update Now" support via Plugin Update Checker, pointed
@@ -70,6 +71,7 @@ final class EngageAI_Plugin
         EngageAI_Admin_Generate::instance()->register_hooks();
         EngageAI_Admin_Agents::instance()->register_hooks();
         EngageAI_Admin_Analytics::instance()->register_hooks();
+        EngageAI_Admin_Dashboard::instance()->register_hooks();
     }
 
     public function register_admin_menu(): void
@@ -78,14 +80,23 @@ final class EngageAI_Plugin
             __('Engage AI', 'engage-ai'),
             __('Engage AI', 'engage-ai'),
             'manage_options',
-            'engageai-generate',
-            [EngageAI_Admin_Generate::instance(), 'render_page'],
+            'engageai-dashboard',
+            [EngageAI_Admin_Dashboard::instance(), 'render_page'],
             'dashicons-megaphone',
             58
         );
 
         add_submenu_page(
-            'engageai-generate',
+            'engageai-dashboard',
+            __('Dashboard', 'engage-ai'),
+            __('Dashboard', 'engage-ai'),
+            'manage_options',
+            'engageai-dashboard',
+            [EngageAI_Admin_Dashboard::instance(), 'render_page']
+        );
+
+        add_submenu_page(
+            'engageai-dashboard',
             __('Generate Content', 'engage-ai'),
             __('Generate Content', 'engage-ai'),
             'manage_options',
@@ -94,7 +105,7 @@ final class EngageAI_Plugin
         );
 
         add_submenu_page(
-            'engageai-generate',
+            'engageai-dashboard',
             __('Agents', 'engage-ai'),
             __('Agents', 'engage-ai'),
             'manage_options',
@@ -103,7 +114,7 @@ final class EngageAI_Plugin
         );
 
         add_submenu_page(
-            'engageai-generate',
+            'engageai-dashboard',
             __('Analytics', 'engage-ai'),
             __('Analytics', 'engage-ai'),
             'manage_options',
@@ -112,7 +123,7 @@ final class EngageAI_Plugin
         );
 
         add_submenu_page(
-            'engageai-generate',
+            'engageai-dashboard',
             __('Engage AI Settings', 'engage-ai'),
             __('Settings', 'engage-ai'),
             'manage_options',
