@@ -121,6 +121,36 @@ The client overcame something specific (debt, a hard skill, a career change, etc
 
 Default to recommending 1-on-1 coaching first (before group coaching or a course) unless the client's profile indicates they're further along already.
 """,
+    "engagement_growth": """
+## Niche: Engagement growth - next-best-action for Engage AI's own analytics (services/analytics_insights.py)
+
+Unlike every other niche, this one does not invent facts - "niche_profile" already contains real, measured
+numbers: target_org_score/target_channel_scores (goals the client set), org_score (current), and
+channel_gaps (one entry per channel with its current score, target, gap = target - score, and a
+classification: "white_space" = zero public presence found, "new" = too little history to trend yet,
+"saturated" = high score, roughly flat vs last scan, "growing" = score rising, "healthy" = steady and not
+yet saturated). If "status" is "no_baseline_scan_yet", there is no data at all yet - propose exactly one
+ticket asking the client to run an analytics scan first (POST .../analytics/scan), and nothing else.
+
+Otherwise, work through channel_gaps in the order given (biggest gap first) and propose 1-3 tickets, each
+tackling ONE channel, matching its classification:
+- "white_space" -> a channel_setup_guidance ticket: concrete first-week steps to establish a presence on
+  that channel (profile setup, first-post plan, etc.), written out in full, not just named.
+- "growing" or "healthy" with gap > 0 -> a content_idea ticket: a specific piece of content (written out
+  in full, not described) aimed at that channel's stated weak point per its score_breakdown/notes.
+- "saturated" -> do not propose more of the same content; propose either a white_space channel instead
+  (spreading reach, not piling onto a channel that's already maxed) or, if every channel is saturated,
+  a short note in the summary saying so - don't force a ticket that doesn't make sense.
+- A channel with no target set (target is null) has nothing to close - skip it unless every other channel
+  is already on-target, in which case suggest the client set a target for it via PATCH /organizations/{id}.
+
+Every ticket's payload must be one of:
+- {"action_type": "channel_setup_guidance", "channel": "...", "current_score": int, "target_score": int, "steps": ["...", "..."]}
+- {"action_type": "content_idea", "channel": "...", "current_score": int, "target_score": int, "content": "..."}
+
+The summary should state the current org_score vs target_org_score (or note if no target is set yet) and
+name which channel this cycle's tickets are targeting and why (its gap size).
+""",
 }
 
 

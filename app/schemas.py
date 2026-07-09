@@ -29,6 +29,11 @@ class OrganizationCreate(BaseModel):
     locations: list[dict] | None = None
     speakers: list[dict] | None = None
     website_url: str | None = None
+    # Goal-setting for the engagement_growth agent niche - included here (not
+    # a separate schema) so the existing generic PATCH /organizations/{id}
+    # can set them like any other org field.
+    target_org_score: int | None = None
+    target_channel_scores: dict | None = None
 
 
 class OrganizationOut(OrganizationCreate):
@@ -147,3 +152,48 @@ class AnalyticsInsightsOut(BaseModel):
     baseline_org_score: int | None
     ranking: list[ChannelRankingEntry]
     summary: str | None
+
+
+class PublicationCreate(BaseModel):
+    channel: str
+    url: str
+    label: str | None = None
+    content_item_id: int | None = None
+    published_at: datetime | None = None
+
+
+class PublicationOut(PublicationCreate):
+    id: int
+    organization_id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PublicationSnapshotOut(BaseModel):
+    id: int
+    publication_id: int
+    kpis: dict | None
+    notes: str | None
+    score: int | None
+    score_breakdown: list[dict] | None
+    sources: list[str] | None
+    scanned_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PublicationWithLatestOut(PublicationOut):
+    """Publication + its most recent snapshot, if any - what the WordPress
+    'mark as published' list actually needs to render without a second
+    round-trip per item."""
+    latest_snapshot: PublicationSnapshotOut | None = None
+
+
+class EngagementTypeRankingEntry(BaseModel):
+    content_type: str
+    avg_score: float
+    publication_count: int
+    scanned_publication_count: int

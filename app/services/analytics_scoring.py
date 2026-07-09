@@ -213,3 +213,75 @@ def classify_channel_trend(current_score: int, previous_scores: list[int]) -> st
     if delta > GROWING_DELTA:
         return "growing"
     return "healthy"
+
+
+# --- Publication-level (one specific published item, not a whole channel) ---
+#
+# Only channels with genuinely public content can be scanned this way. Email
+# and WhatsApp sends are private by nature - there is no public page to
+# search for, so no amount of prompt engineering can produce real numbers
+# for them. They're still registerable (for record-keeping - what was sent,
+# when) but the scan endpoint refuses to fabricate a score for them.
+PUBLICATION_SCANNABLE_CHANNELS = ["website", "facebook", "instagram", "linkedin", "twitter_x", "youtube"]
+PUBLICATION_UNSCANNABLE_CHANNELS = ["email", "whatsapp"]
+PUBLICATION_CHANNELS = PUBLICATION_SCANNABLE_CHANNELS + PUBLICATION_UNSCANNABLE_CHANNELS
+
+PUBLICATION_KPI_SCHEMA: dict[str, dict[str, str]] = {
+    "website": {
+        "indexed": "bool",
+        "backlink_signal": f"enum{QUALITATIVE_LEVELS}",
+        "freshness": f"enum{FRESHNESS_LEVELS}",
+    },
+    "facebook": {"found": "bool", "likes": "int|null", "comments": "int|null", "shares": "int|null"},
+    "instagram": {"found": "bool", "likes": "int|null", "comments": "int|null"},
+    "linkedin": {"found": "bool", "likes": "int|null", "comments": "int|null", "shares": "int|null"},
+    "twitter_x": {"found": "bool", "likes": "int|null", "reposts": "int|null", "replies": "int|null"},
+    "youtube": {"found": "bool", "views": "int|null", "likes": "int|null", "comments": "int|null"},
+}
+
+
+def score_publication(channel: str, kpis: dict) -> tuple[int, list[dict]]:
+    """Same philosophy as score_channel: Claude only reports the fixed
+    fields, this function is the only place a number gets turned into a
+    score, so the same real state always scores the same way."""
+    kpis = kpis or {}
+    breakdown: list[dict] = []
+
+    def add(rule: str, points: int, basis):
+        breakdown.append({"rule": rule, "points": points, "basis": basis})
+
+    if channel == "website":
+        indexed = bool(kpis.get("indexed"))
+        add("indexed", 30 if indexed else 0, indexed)
+        if not indexed:
+            return 0, breakdown
+        backlink = kpis.get("backlink_signal", "none")
+        add("backlink_signal", {"none": 0, "low": 12, "medium": 23, "high": 35}.get(backlink, 0), backlink)
+        freshness = kpis.get("freshness", "stale")
+        add("freshness", {"stale": 0, "occasional": 12, "active": 23, "very_active": 35}.get(freshness, 0), freshness)
+
+    elif channel == "youtube":
+        found = bool(kpis.get("found"))
+        add("found", 20 if found else 0, found)
+        if not found:
+            return 0, breakdown
+        add("views tier", _tier(kpis.get("views"), [(0, 0), (100, 10), (1000, 25), (10000, 40)]), kpis.get("views"))
+        add("likes tier", _tier(kpis.get("likes"), [(0, 0), (10, 10), (100, 20)]), kpis.get("likes"))
+        add("comments tier", _tier(kpis.get("comments"), [(0, 0), (3, 10), (20, 20)]), kpis.get("comments"))
+
+    elif channel in ("facebook", "instagram", "linkedin", "twitter_x"):
+        found = bool(kpis.get("found"))
+        add("found", 20 if found else 0, found)
+        if not found:
+            return 0, breakdown
+        engagement_fields = [k for k in kpis if k != "found"]
+        per_field_cap = 80 // max(len(engagement_fields), 1)
+        for field in engagement_fields:
+            pts = _tier(kpis.get(field), [(0, 0), (5, per_field_cap // 2), (25, per_field_cap)])
+            add(f"{field} tier", pts, kpis.get(field))
+
+    else:
+        return 0, breakdown
+
+    score = min(100, sum(b["points"] for b in breakdown))
+    return score, breakdown

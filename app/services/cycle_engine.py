@@ -1,8 +1,11 @@
 from sqlalchemy.orm import Session
 from app.models.entities import AgentRun, Organization, Ticket
 from app.services.agent_ai import AgentAI
+from app.services.analytics_insights import compute_insights
 
 ai = AgentAI()
+
+ENGAGEMENT_GROWTH_NICHE = "engagement_growth"
 
 
 def module_key(niche: str) -> str:
@@ -24,7 +27,49 @@ def _org_context(org: Organization) -> dict:
     }
 
 
-def _niche_profile(org: Organization, niche: str) -> dict:
+def _engagement_growth_profile(db: Session, org: Organization) -> dict:
+    """Builds this niche's "profile" from live analytics data instead of the
+    free-form agent_profiles JSON every other niche uses - the whole point
+    of this niche is to act on numbers Engage AI already measured
+    (services/analytics_insights.py), not on facts the client typed in.
+    Every gap/target number here is computed in Python, never invented by
+    the model - the agent's only job is turning a known gap into a concrete
+    next action."""
+    targets = org.target_channel_scores or {}
+    profile: dict = {
+        "target_org_score": org.target_org_score,
+        "target_channel_scores": targets,
+    }
+
+    insights = compute_insights(db, org.id)
+    if insights is None:
+        profile["status"] = "no_baseline_scan_yet"
+        return profile
+
+    gaps = []
+    for r in insights["ranking"]:
+        target = targets.get(r["channel"])
+        gap = (target - r["score"]) if target is not None else None
+        gaps.append({**r, "target": target, "gap": gap})
+    # Biggest gap first; channels with no target set sort last (nothing to close).
+    gaps.sort(key=lambda g: (g["gap"] is None, -(g["gap"] or 0)))
+
+    org_score = insights["org_score"]
+    org_gap = (org.target_org_score - org_score) if org.target_org_score is not None and org_score is not None else None
+
+    profile.update({
+        "org_score": org_score,
+        "baseline_org_score": insights["baseline_org_score"],
+        "org_score_gap": org_gap,
+        "channel_gaps": gaps,
+        "latest_scan_summary": insights["summary"],
+    })
+    return profile
+
+
+def _niche_profile(db: Session, org: Organization, niche: str) -> dict:
+    if niche == ENGAGEMENT_GROWTH_NICHE:
+        return _engagement_growth_profile(db, org)
     return (org.agent_profiles or {}).get(niche, {})
 
 
@@ -64,7 +109,7 @@ def run_cycle_for_niche(db: Session, org: Organization, niche: str) -> AgentRun:
     result = ai.run_cycle(
         niche=niche,
         org_context=_org_context(org),
-        niche_profile=_niche_profile(org, niche),
+        niche_profile=_niche_profile(db, org, niche),
         recent_runs=_recent_runs(db, org.id, niche),
         open_tickets=_open_tickets(db, org.id, niche),
     )

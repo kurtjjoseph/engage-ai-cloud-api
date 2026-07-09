@@ -330,6 +330,11 @@ class EngageAI_Admin_Agents
             return;
         }
 
+        if (!empty($payload['action_type']) && in_array($payload['action_type'], ['channel_setup_guidance', 'content_idea'], true)) {
+            $this->render_engagement_growth_payload($payload);
+            return;
+        }
+
         $simple_fields = [
             'working_title' => __('Working title:', 'engage-ai'),
             'hook' => __('Hook:', 'engage-ai'),
@@ -383,6 +388,41 @@ class EngageAI_Admin_Agents
         $rest = array_diff_key($payload, array_flip($known));
         if (!empty($rest)) {
             echo '<details><summary>' . esc_html__('Other details', 'engage-ai') . '</summary><pre>' . esc_html(wp_json_encode($rest, JSON_PRETTY_PRINT)) . '</pre></details>';
+        }
+    }
+
+    /**
+     * The engagement_growth niche's two payload shapes - see NICHE_PROMPTS
+     * in agent_ai.py. Both carry the channel and its current/target score
+     * so the ticket is self-explanatory without cross-referencing the
+     * Analytics page.
+     * @param array{action_type: string, channel?: string, current_score?: int, target_score?: int, steps?: array, content?: string} $payload
+     */
+    private function render_engagement_growth_payload(array $payload): void
+    {
+        $channel = isset($payload['channel']) ? ucwords(str_replace('_', ' ', (string) $payload['channel'])) : '';
+        $current = $payload['current_score'] ?? null;
+        $target = $payload['target_score'] ?? null;
+        if ($channel !== '') {
+            echo '<p><strong>' . esc_html__('Channel:', 'engage-ai') . '</strong> ' . esc_html($channel);
+            if ($current !== null) {
+                echo ' &mdash; ' . esc_html(sprintf(__('score %1$s%2$s', 'engage-ai'), (string) $current, $target !== null ? sprintf(__(' (target %s)', 'engage-ai'), (string) $target) : ''));
+            }
+            echo '</p>';
+        }
+
+        if ($payload['action_type'] === 'channel_setup_guidance' && !empty($payload['steps']) && is_array($payload['steps'])) {
+            echo '<p><strong>' . esc_html__('First-week setup plan:', 'engage-ai') . '</strong></p><ol>';
+            foreach ($payload['steps'] as $step) {
+                if (is_string($step)) {
+                    echo '<li>' . esc_html($step) . '</li>';
+                }
+            }
+            echo '</ol>';
+        }
+
+        if ($payload['action_type'] === 'content_idea' && !empty($payload['content']) && is_string($payload['content'])) {
+            echo '<div class="engageai-subfields"><p>' . nl2br(esc_html($payload['content'])) . '</p></div>';
         }
     }
 

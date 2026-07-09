@@ -1,8 +1,8 @@
 import json
-import re
 from anthropic import Anthropic
 from app.config import settings
 from app.services.analytics_scoring import CHANNEL_KPI_SCHEMA
+from app.services.claude_json import extract_citations, extract_json
 
 KNOWN_CHANNELS = list(CHANNEL_KPI_SCHEMA.keys())
 
@@ -72,39 +72,6 @@ Add a "pages" array to the "website" channel's entry in your JSON output:
 """
 
 
-def _extract_json(text: str) -> dict:
-    """Web-search-augmented responses reliably ignore "no commentary" and
-    prepend a sentence like "Based on my research, here's the report" before
-    the JSON (sometimes still fenced, sometimes not) - so this looks for a
-    fenced block first, then falls back to the outermost {...} span, rather
-    than assuming the response starts with the JSON."""
-    text = text.strip()
-
-    fence_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
-    if fence_match:
-        return json.loads(fence_match.group(1))
-
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        return json.loads(text[start:end + 1])
-
-    return json.loads(text)
-
-
-def _extract_citations(response) -> list[str]:
-    """Supplements whatever the model self-reports in "sources" with the
-    actual citation URLs the web search tool attached to its text output,
-    when the SDK exposes them."""
-    urls: list[str] = []
-    for block in response.content:
-        if block.type == "text":
-            for citation in getattr(block, "citations", None) or []:
-                url = getattr(citation, "url", None)
-                if url:
-                    urls.append(url)
-    return urls
-
-
 def _build_system_prompt(channels: list[str] | None, include_pages: bool) -> str:
     prompt = BASE_PROTOCOL
     if channels:
@@ -163,13 +130,13 @@ class AnalyticsSearchService:
 
         text = "".join(block.text for block in response.content if block.type == "text")
         try:
-            result = _extract_json(text)
+            result = extract_json(text)
         except json.JSONDecodeError:
             result = {"summary": "Scan returned non-JSON output; try again.", "channels": [], "sources": []}
 
         result["channels"] = [_sanitize_channel_entry(c) for c in result.get("channels", []) if c.get("channel") in CHANNEL_KPI_SCHEMA]
 
-        cited = _extract_citations(response)
+        cited = extract_citations(response)
         if cited:
             result["sources"] = sorted(set(result.get("sources") or []) | set(cited))
 

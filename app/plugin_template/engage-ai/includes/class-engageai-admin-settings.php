@@ -41,6 +41,7 @@ class EngageAI_Admin_Settings
             'agent:app_builder' => __('Build a Simple App', 'engage-ai'),
             'agent:ugc_creator' => __('UGC Content Creation', 'engage-ai'),
             'agent:coaching' => __('Coaching From Experience', 'engage-ai'),
+            'agent:engagement_growth' => __('Engagement Growth (next-best-action from Analytics)', 'engage-ai'),
         ];
     }
 
@@ -52,6 +53,7 @@ class EngageAI_Admin_Settings
         add_action('admin_post_engageai_create_organization', [$this, 'handle_create_organization']);
         add_action('admin_post_engageai_select_organization', [$this, 'handle_select_organization']);
         add_action('admin_post_engageai_update_organization', [$this, 'handle_update_organization']);
+        add_action('admin_post_engageai_update_targets', [$this, 'handle_update_targets']);
         add_action('admin_post_engageai_update_modules', [$this, 'handle_update_modules']);
     }
 
@@ -161,6 +163,36 @@ class EngageAI_Admin_Settings
         }
 
         $this->redirect_with_notice('success', __('Organization details updated.', 'engage-ai'));
+    }
+
+    public function handle_update_targets(): void
+    {
+        $this->verify_request('engageai_update_targets');
+
+        $org_id = $this->client->get_organization_id();
+        if (!$org_id) {
+            $this->redirect_with_notice('error', __('Select an organization first.', 'engage-ai'));
+        }
+
+        $target_org_score = $_POST['engageai_target_org_score'] ?? '';
+        $target_channel_scores = [];
+        foreach (array_keys(EngageAI_Admin_Analytics::channels()) as $channel) {
+            $field = 'engageai_target_' . $channel;
+            if (isset($_POST[$field]) && $_POST[$field] !== '') {
+                $target_channel_scores[$channel] = max(0, min(100, (int) $_POST[$field]));
+            }
+        }
+
+        $result = $this->client->update_organization($org_id, [
+            'target_org_score' => $target_org_score !== '' ? max(0, min(100, (int) $target_org_score)) : null,
+            'target_channel_scores' => !empty($target_channel_scores) ? $target_channel_scores : null,
+        ]);
+
+        if (is_wp_error($result)) {
+            $this->redirect_with_notice('error', $result->get_error_message());
+        }
+
+        $this->redirect_with_notice('success', __('Targets updated - the Engagement Growth agent will use these on its next cycle.', 'engage-ai'));
     }
 
     public function handle_update_modules(): void
@@ -379,7 +411,29 @@ class EngageAI_Admin_Settings
                     </form>
 
                     <hr>
-                    <h2><?php esc_html_e('5. Modules', 'engage-ai'); ?></h2>
+                    <h2><?php esc_html_e('5. Engagement targets', 'engage-ai'); ?></h2>
+                    <p class="description"><?php esc_html_e('What the Engagement Growth agent works toward - leave a field blank for "no target set" (that channel just gets reported on, not chased). See it turn these into concrete next actions on the Analytics page.', 'engage-ai'); ?></p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="engageai_update_targets">
+                        <?php wp_nonce_field('engageai_update_targets'); ?>
+                        <table class="form-table">
+                            <tr>
+                                <th><label for="engageai_target_org_score"><?php esc_html_e('Overall org score target', 'engage-ai'); ?></label></th>
+                                <td><input type="number" min="0" max="100" id="engageai_target_org_score" name="engageai_target_org_score" value="<?php echo esc_attr($active_org['target_org_score'] ?? ''); ?>" class="small-text"> / 100</td>
+                            </tr>
+                            <?php $target_channel_scores = $active_org['target_channel_scores'] ?? []; ?>
+                            <?php foreach (EngageAI_Admin_Analytics::channels() as $key => $label): ?>
+                                <tr>
+                                    <th><label for="engageai_target_<?php echo esc_attr($key); ?>"><?php echo esc_html($label); ?></label></th>
+                                    <td><input type="number" min="0" max="100" id="engageai_target_<?php echo esc_attr($key); ?>" name="engageai_target_<?php echo esc_attr($key); ?>" value="<?php echo esc_attr($target_channel_scores[$key] ?? ''); ?>" class="small-text"> / 100</td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </table>
+                        <?php submit_button(__('Save targets', 'engage-ai')); ?>
+                    </form>
+
+                    <hr>
+                    <h2><?php esc_html_e('6. Modules', 'engage-ai'); ?></h2>
                     <p class="description"><?php esc_html_e('Turn on only what this organization needs. "Church Engagement Content" is the original event/announcement/sermon generator; each Claude AI side hustle below runs its own autonomous check-in cycle once activated.', 'engage-ai'); ?></p>
                     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                         <input type="hidden" name="action" value="engageai_update_modules">

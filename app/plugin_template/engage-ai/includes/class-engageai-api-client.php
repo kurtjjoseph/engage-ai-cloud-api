@@ -151,6 +151,62 @@ class EngageAI_Api_Client
     }
 
     /**
+     * Org score, a channel ranking (best to worst) with white_space/new/
+     * growing/saturated/healthy classification, and each channel's exact
+     * score breakdown - built from the most recent full-sweep scans only.
+     * @return array|WP_Error
+     */
+    public function get_analytics_insights(int $org_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/analytics/insights');
+    }
+
+    /**
+     * Which kind of content (by ContentItem content_type) performs best on
+     * average across every scanned Publication - "what to make more of".
+     * @return array|WP_Error
+     */
+    public function get_engagement_type_ranking(int $org_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/analytics/engagement-type-ranking');
+    }
+
+    /**
+     * @return array|WP_Error list of publications, each with its latest snapshot (or null)
+     */
+    public function get_publications(int $org_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/publications');
+    }
+
+    /**
+     * Registers where something was actually published (the "mark as
+     * published" step) so its real-world performance can be tracked.
+     * @return array|WP_Error
+     */
+    public function create_publication(int $org_id, array $data)
+    {
+        return $this->request('POST', '/organizations/' . $org_id . '/publications', $data);
+    }
+
+    /**
+     * @return array|WP_Error list of PublicationSnapshots for one publication, most recent first
+     */
+    public function get_publication_history(int $org_id, int $publication_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/publications/' . $publication_id);
+    }
+
+    /**
+     * Runs a fresh performance check on one publication now.
+     * @return array|WP_Error the new PublicationSnapshot
+     */
+    public function scan_publication(int $org_id, int $publication_id)
+    {
+        return $this->request('POST', '/organizations/' . $org_id . '/publications/' . $publication_id . '/scan');
+    }
+
+    /**
      * @param string $task one of: event, announcements, sermon
      * @return array|WP_Error
      */
