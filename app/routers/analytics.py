@@ -4,8 +4,8 @@ from app.db.session import get_db
 from app.deps import get_current_user
 from app.models.entities import AnalyticsSnapshot, Organization, User
 from app.routers.organizations import get_owned_org
-from app.schemas import AnalyticsSnapshotOut
-from app.services.analytics_scoring import score_channel, score_org
+from app.schemas import AnalyticsInsightsOut, AnalyticsSnapshotOut, ChannelRankingEntry
+from app.services.analytics_scoring import classify_channel_trend, score_channel, score_org
 from app.services.analytics_search import KNOWN_CHANNELS, AnalyticsSearchService
 
 router = APIRouter(prefix="/organizations/{org_id}/analytics", tags=["analytics"])
@@ -97,4 +97,68 @@ def list_snapshots(org_id: int, db: Session = Depends(get_db), user: User = Depe
         .filter(AnalyticsSnapshot.organization_id == org_id)
         .order_by(AnalyticsSnapshot.created_at.desc())
         .all()
+    )
+
+
+@router.get("/insights", response_model=AnalyticsInsightsOut)
+def get_insights(org_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The org score, a channel ranking (best to worst), and a white_space /
+    saturated / growing / healthy / new classification per channel - the
+    single endpoint the WordPress dashboard reads for the "how is each
+    channel doing" view. Classification needs trend, so it's only computed
+    from FULL-SWEEP snapshots (a channel-scoped scan not checking a channel
+    isn't the same as that channel going flat)."""
+    get_analytics_enabled_org(org_id, db, user)
+
+    # SQLAlchemy's JSON columns store Python None as the JSON literal `null`
+    # (text), not SQL NULL, so a DB-level `.is_(None)`/`== None` filter never
+    # matches - filtering in Python after a bounded fetch sidesteps that
+    # JSON-NULL-vs-SQL-NULL dialect quirk entirely instead of fighting it.
+    recent = (
+        db.query(AnalyticsSnapshot)
+        .filter(AnalyticsSnapshot.organization_id == org_id)
+        .order_by(AnalyticsSnapshot.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    full_sweeps = [s for s in recent if not s.requested_channels][:6]
+    if not full_sweeps:
+        raise HTTPException(status_code=404, detail="No full-sweep scans yet - run one via POST .../analytics/scan (no channels param) first.")
+
+    latest = full_sweeps[0]
+    older = list(reversed(full_sweeps[1:]))  # oldest-first, for classify_channel_trend's "previous_scores"
+
+    def prior_scores(channel: str) -> list[int]:
+        scores = []
+        for snap in older:
+            for entry in snap.channels or []:
+                if entry.get("channel") == channel and entry.get("score") is not None:
+                    scores.append(entry["score"])
+        return scores
+
+    ranking = []
+    for entry in latest.channels or []:
+        channel = entry.get("channel")
+        score = entry.get("score", 0)
+        ranking.append({
+            "channel": channel,
+            "score": score,
+            "classification": classify_channel_trend(score, prior_scores(channel)),
+            "score_breakdown": entry.get("score_breakdown", []),
+            "notes": entry.get("notes"),
+        })
+    ranking.sort(key=lambda r: r["score"], reverse=True)
+    for i, r in enumerate(ranking):
+        r["rank"] = i + 1
+
+    baseline = db.query(AnalyticsSnapshot).filter(AnalyticsSnapshot.organization_id == org_id, AnalyticsSnapshot.is_baseline.is_(True)).first()
+
+    return AnalyticsInsightsOut(
+        latest_snapshot_id=latest.id,
+        latest_created_at=latest.created_at,
+        org_score=latest.org_score,
+        org_score_breakdown=latest.org_score_breakdown,
+        baseline_org_score=baseline.org_score if baseline else None,
+        ranking=[ChannelRankingEntry(**r) for r in ranking],
+        summary=latest.summary,
     )

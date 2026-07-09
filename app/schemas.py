@@ -128,3 +128,22 @@ class AnalyticsSnapshotOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ChannelRankingEntry(BaseModel):
+    rank: int
+    channel: str
+    score: int
+    classification: str  # white_space | new | growing | saturated | healthy
+    score_breakdown: list[dict]
+    notes: str | None = None
+
+
+class AnalyticsInsightsOut(BaseModel):
+    latest_snapshot_id: int
+    latest_created_at: datetime
+    org_score: int | None
+    org_score_breakdown: list[dict] | None
+    baseline_org_score: int | None
+    ranking: list[ChannelRankingEntry]
+    summary: str | None

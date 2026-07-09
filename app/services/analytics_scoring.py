@@ -181,3 +181,35 @@ def score_org(channel_scores: dict[str, int]) -> tuple[int, list[dict]]:
     total = sum(b["score"] for b in breakdown)
     org_score = round(total / len(all_channels)) if all_channels else 0
     return org_score, breakdown
+
+
+SATURATED_THRESHOLD = 60  # a channel has to already be reasonably developed to call it "saturated" rather than just quiet
+FLAT_DELTA = 5  # score movement within this range across recent scans counts as "flat"
+GROWING_DELTA = 5  # a movement bigger than this counts as real growth
+
+
+def classify_channel_trend(current_score: int, previous_scores: list[int]) -> str:
+    """previous_scores: this channel's scores from prior FULL-SWEEP scans only
+    (oldest first) - a channel-scoped scan not checking a channel isn't the
+    same as that channel staying flat, so scoped-scan snapshots must be
+    filtered out by the caller before this is called.
+
+    Returns one of:
+    - "white_space": no real presence - the cheapest reach opportunity
+    - "new": presence exists but there's no history yet to judge a trend
+    - "growing": score has moved up meaningfully since the last scans
+    - "saturated": already well-developed (>=60) and score has plateaued -
+      same channel, different approach needed, not just "do more"
+    - "healthy": present, not flat, not saturated - steady state
+    """
+    if current_score == 0:
+        return "white_space"
+    if not previous_scores:
+        return "new"
+
+    delta = current_score - previous_scores[-1]
+    if current_score >= SATURATED_THRESHOLD and abs(delta) <= FLAT_DELTA:
+        return "saturated"
+    if delta > GROWING_DELTA:
+        return "growing"
+    return "healthy"
