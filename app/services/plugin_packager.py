@@ -9,20 +9,37 @@ from pathlib import Path
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "plugin_template" / "engage-ai"
 
 
+def _zip_template() -> tuple[io.BytesIO, zipfile.ZipFile]:
+    buffer = io.BytesIO()
+    zf = zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED)
+    for path in sorted(TEMPLATE_DIR.rglob("*")):
+        if path.is_file():
+            arcname = "engage-ai/" + str(path.relative_to(TEMPLATE_DIR))
+            zf.write(path, arcname)
+    return buffer, zf
+
+
 def build_personalized_zip(api_base_url: str, token: str, organization_id: int) -> bytes:
     """Builds a ready-to-install engage-ai.zip with includes/preconfigured.php
     baked in, so activating it in WordPress skips the Settings connect flow
-    entirely - the plugin's activation hook reads this file if present."""
+    entirely - the plugin's activation hook reads this file if present.
+    Used by POST /onboarding for first-time installs."""
     preconfigured_php = _render_preconfigured_php(api_base_url, token, organization_id)
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in sorted(TEMPLATE_DIR.rglob("*")):
-            if path.is_file():
-                arcname = "engage-ai/" + str(path.relative_to(TEMPLATE_DIR))
-                zf.write(path, arcname)
-        zf.writestr("engage-ai/includes/preconfigured.php", preconfigured_php)
+    buffer, zf = _zip_template()
+    zf.writestr("engage-ai/includes/preconfigured.php", preconfigured_php)
+    zf.close()
 
+    return buffer.getvalue()
+
+
+def build_plain_zip() -> bytes:
+    """The same plugin source with no includes/preconfigured.php baked in -
+    used for plugin *updates* (GET /plugin/download.zip), since an already-
+    connected site's token/org id live in wp_options, not in this file, and
+    an update zip shouldn't imply a fresh onboarding identity."""
+    buffer, zf = _zip_template()
+    zf.close()
     return buffer.getvalue()
 
 

@@ -22,6 +22,33 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-generate.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-agents.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-analytics.php';
 
+/**
+ * Native WordPress "Update Now" support via Plugin Update Checker, pointed
+ * at our own API instead of GitHub - no releases/tags to manage, the API
+ * serves /plugin/metadata.json straight from its bundled copy of this
+ * plugin's source (see engage-ai-cloud-api/app/services/plugin_metadata.py).
+ *
+ * Guarded on file_exists() because the PUC library isn't committed to this
+ * repo (third-party code - see https://github.com/YahnisElsts/plugin-update-checker,
+ * drop the release zip's contents into includes/plugin-update-checker/).
+ * Until it's present, this is a silent no-op and the rest of the plugin
+ * works normally - update checking turns on automatically the moment the
+ * library is added, no further code change needed.
+ */
+$engageai_puc_file = ENGAGEAI_PLUGIN_DIR . 'includes/plugin-update-checker/plugin-update-checker.php';
+if (file_exists($engageai_puc_file)) {
+    require_once $engageai_puc_file;
+    if (class_exists('YahnisElsts\\PluginUpdateChecker\\v5\\PucFactory')) {
+        $engageai_api_base = rtrim((string) get_option('engageai_api_base_url', 'https://engage-ai-api.onrender.com'), '/');
+        \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+            $engageai_api_base . '/plugin/metadata.json',
+            __FILE__,
+            'engage-ai'
+        );
+    }
+}
+unset($engageai_puc_file);
+
 final class EngageAI_Plugin
 {
     private static ?EngageAI_Plugin $instance = null;
