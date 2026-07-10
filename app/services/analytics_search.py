@@ -132,6 +132,12 @@ class AnalyticsSearchService:
         # roughly) and a bigger response budget for up to 12 page entries.
         max_uses = 16 if include_pages else 8
         max_tokens = 8192 if include_pages else 4096
+        # web_fetch is only ever used to retrieve a handful of already-known
+        # URLs (website_url + up to 7 channel_details entries) - giving it the
+        # same budget as web_search nearly doubled total tool round-trips per
+        # scan and pushed real scans past a 180s timeout. A small fixed budget
+        # covers every known URL without that latency cost.
+        fetch_max_uses = 6
 
         response = self.client.messages.create(
             model=settings.anthropic_model,
@@ -143,7 +149,7 @@ class AnalyticsSearchService:
             # of only being able to search and hope a search engine indexed it.
             tools=[
                 {"type": "web_search_20260209", "name": "web_search", "max_uses": max_uses},
-                {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": max_uses},
+                {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": fetch_max_uses},
             ],
             messages=[{"role": "user", "content": user_message}],
         )
