@@ -131,8 +131,14 @@ class AnalyticsSearchService:
 
         # Page-level discovery needs more searches (one per candidate page,
         # roughly) and a bigger response budget for up to 12 page entries.
+        # max_tokens covers ALL output in the turn - tool-use blocks and the
+        # model's review of search/fetch results, not just the final JSON -
+        # so a full 8-channel sweep with web_fetch involved routinely needs
+        # far more than the final JSON's own size. A live scan hit
+        # stop_reason=max_tokens at the old 4096 budget after 146s of real
+        # research, silently truncating its own output.
         max_uses = 16 if include_pages else 8
-        max_tokens = 8192 if include_pages else 4096
+        max_tokens = 16384 if include_pages else 8192
         # web_fetch is only ever used to retrieve a handful of already-known
         # URLs (website_url + up to 7 channel_details entries) - giving it the
         # same budget as web_search nearly doubled total tool round-trips per
@@ -175,6 +181,17 @@ class AnalyticsSearchService:
 
         elapsed = time.monotonic() - started_at
         print(f"[analytics_search] Claude call finished in {elapsed:.1f}s, stop_reason={response.stop_reason}", flush=True)
+
+        if response.stop_reason == "max_tokens":
+            # The response was cut off mid-turn - whatever text made it out is
+            # not reliably valid/complete JSON (may parse "successfully" into
+            # garbage if it happens to look balanced). Treat this as an
+            # explicit failure so the caller marks the snapshot "failed"
+            # instead of "complete" with silently wrong/empty data.
+            raise RuntimeError(
+                f"Claude ran out of its {max_tokens}-token response budget before finishing "
+                "(stop_reason=max_tokens) - try again, or scope the scan to fewer channels."
+            )
 
         text = "".join(block.text for block in response.content if block.type == "text")
         try:
