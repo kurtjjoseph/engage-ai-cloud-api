@@ -1,4 +1,5 @@
 import json
+import time
 from anthropic import Anthropic
 from app.config import settings
 from app.services.analytics_scoring import CHANNEL_KPI_SCHEMA
@@ -139,6 +140,27 @@ class AnalyticsSearchService:
         # covers every known URL without that latency cost.
         fetch_max_uses = 6
 
+        tools = [
+            {"type": "web_search_20260209", "name": "web_search", "max_uses": max_uses},
+            {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": fetch_max_uses},
+        ]
+        # Print (not logging - nothing else in this codebase configures a
+        # logging handler, and uvicorn's own INFO lines go straight to
+        # stdout/Render logs the same way) the exact request right before it's
+        # sent, so a slow or wrong scan can be diagnosed from Render logs
+        # without needing to reproduce it.
+        print(
+            "[analytics_search] calling Claude: "
+            + json.dumps({
+                "model": settings.anthropic_model,
+                "max_tokens": max_tokens,
+                "tools": tools,
+                "user_message": user_message,
+            }),
+            flush=True,
+        )
+        started_at = time.monotonic()
+
         response = self.client.messages.create(
             model=settings.anthropic_model,
             max_tokens=max_tokens,
@@ -147,12 +169,12 @@ class AnalyticsSearchService:
             # claude-sonnet-5, which supports them. web_fetch lets the model retrieve a known
             # website_url/channel_details URL directly (it's already in the user message) instead
             # of only being able to search and hope a search engine indexed it.
-            tools=[
-                {"type": "web_search_20260209", "name": "web_search", "max_uses": max_uses},
-                {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": fetch_max_uses},
-            ],
+            tools=tools,
             messages=[{"role": "user", "content": user_message}],
         )
+
+        elapsed = time.monotonic() - started_at
+        print(f"[analytics_search] Claude call finished in {elapsed:.1f}s, stop_reason={response.stop_reason}", flush=True)
 
         text = "".join(block.text for block in response.content if block.type == "text")
         try:
