@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.11.0
+ * Version: 0.12.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.11.0');
+define('ENGAGEAI_VERSION', '0.12.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -23,6 +23,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-agents.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-analytics.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-dashboard.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-assistant.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-cron.php';
 
 /**
  * Native WordPress "Update Now" support via Plugin Update Checker, pointed
@@ -67,6 +68,13 @@ final class EngageAI_Plugin
     {
         add_action('admin_menu', [$this, 'register_admin_menu']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+        add_action(EngageAI_Cron::HOOK, [EngageAI_Cron::class, 'run']);
+        // Activation hooks don't fire on a self-update (Plugin Update
+        // Checker replaces the files without deactivating/reactivating), so
+        // an existing install would otherwise never get the cron scheduled
+        // once it updates to the version that introduced it. schedule() is
+        // idempotent (wp_next_scheduled guard), so hooking it here too is cheap.
+        add_action('init', [EngageAI_Cron::class, 'schedule']);
 
         EngageAI_Admin_Settings::instance()->register_hooks();
         EngageAI_Admin_Generate::instance()->register_hooks();
@@ -167,6 +175,8 @@ final class EngageAI_Plugin
      */
     public static function activate(): void
     {
+        EngageAI_Cron::schedule();
+
         $config_file = ENGAGEAI_PLUGIN_DIR . 'includes/preconfigured.php';
         if (!file_exists($config_file)) {
             return;
@@ -191,5 +201,6 @@ final class EngageAI_Plugin
 }
 
 register_activation_hook(__FILE__, ['EngageAI_Plugin', 'activate']);
+register_deactivation_hook(__FILE__, ['EngageAI_Cron', 'unschedule']);
 
 EngageAI_Plugin::instance();

@@ -48,4 +48,24 @@ class EngageAI_Post_Publisher
 
         return $post_id;
     }
+
+    /**
+     * Publishes a single piece of already-written copy (an engagement_growth
+     * "content_idea" ticket's payload, not the full multi-channel campaign
+     * schema publish() above expects) as a plain WordPress post. Used by the
+     * autonomous cron sweep (class-engageai-cron.php) for "website" channel
+     * tickets - always forced to draft/pending regardless of the site's
+     * configured default status, since autonomy here is only safe because
+     * this never goes live untouched.
+     * @return int|WP_Error post ID on success
+     */
+    public function publish_single_channel_draft(string $title, string $content, string $post_status = 'draft')
+    {
+        return wp_insert_post([
+            'post_title' => sanitize_text_field($title),
+            'post_content' => wp_kses_post(wpautop($content)),
+            'post_status' => in_array($post_status, ['draft', 'pending'], true) ? $post_status : 'draft',
+            'post_type' => 'post',
+        ], true);
+    }
 }

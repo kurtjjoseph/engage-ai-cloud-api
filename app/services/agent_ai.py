@@ -148,6 +148,12 @@ Every ticket's payload must be one of:
 - {"action_type": "channel_setup_guidance", "channel": "...", "current_score": int, "target_score": int, "steps": ["...", "..."]}
 - {"action_type": "content_idea", "channel": "...", "current_score": int, "target_score": int, "content": "..."}
 
+Risk: every ticket in this niche defaults to "high" per the general rule above (it proposes content aimed
+at a public channel). EXCEPT: a "content_idea" ticket whose "channel" is "website" must be risk "low" -
+Engage AI publishes website content ideas straight to a WordPress draft, not a live post, so nothing is
+actually public yet and a human still reviews it before it goes live. No other channel has a reversible
+staging step like that in this system yet, so those stay "high" and wait for manual approval as normal.
+
 The summary should state the current org_score vs target_org_score (or note if no target is set yet) and
 name which channel this cycle's tickets are targeting and why (its gap size).
 """,
