@@ -75,11 +75,50 @@ def _execute_scan(snapshot_id: int, org_context: dict, channels: list[str] | Non
             snapshot.org_score_breakdown = org_breakdown
             snapshot.sources = result.get("sources", [])
             snapshot.status = "complete"
+            # Same print-to-Render-logs convention as analytics_search.py -
+            # without this, everything after "Claude call finished" is
+            # silent, so "did the snapshot actually get written?" can't be
+            # answered from logs when someone reports stale analytics.
+            print(
+                f"[analytics] snapshot {snapshot.id} complete: org_score={org_score}, "
+                f"{len(scored_channels)} channels, summary={str(snapshot.summary)[:120]!r}",
+                flush=True,
+            )
         except Exception as exc:  # noqa: BLE001 - deliberately broad: this must never leave the snapshot stuck "pending"
             snapshot.status = "failed"
             snapshot.summary = f"Scan failed: {exc}"
+            print(f"[analytics] snapshot {snapshot.id} FAILED: {exc}", flush=True)
 
         db.commit()
+    finally:
+        db.close()
+
+
+def reap_stale_pending_snapshots() -> None:
+    """BackgroundTasks don't survive a process restart - a scan in flight
+    when a deploy lands dies silently, leaving its snapshot "pending"
+    forever, which the plugin renders as a permanent "Scan in progress".
+    Deploys here happen many times a day, so this isn't hypothetical. Called
+    on startup (main.py) - by definition every pending snapshot older than a
+    scan could plausibly still be running is orphaned. The 10-minute grace
+    covers the brief deploy overlap where the outgoing instance may still
+    finish a young scan (its later "complete" write simply overrides this)."""
+    from datetime import datetime, timedelta
+
+    db = SessionLocal()
+    try:
+        cutoff = datetime.utcnow() - timedelta(minutes=10)
+        stale = (
+            db.query(AnalyticsSnapshot)
+            .filter(AnalyticsSnapshot.status == "pending", AnalyticsSnapshot.created_at < cutoff)
+            .all()
+        )
+        for snapshot in stale:
+            snapshot.status = "failed"
+            snapshot.summary = "Scan was interrupted (most likely a deploy restarted the API mid-scan) - run a new scan."
+            print(f"[analytics] reaped stale pending snapshot {snapshot.id} (created {snapshot.created_at})", flush=True)
+        if stale:
+            db.commit()
     finally:
         db.close()
 

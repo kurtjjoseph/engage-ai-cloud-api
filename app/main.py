@@ -33,6 +33,10 @@ app.include_router(publications.router)
 
 @app.on_event("startup")
 def on_startup():
+    # Scans in flight when the previous deploy shut the process down died
+    # with their snapshots stuck "pending" - mark those failed so the
+    # plugin shows "run a new scan" instead of "in progress" forever.
+    analytics.reap_stale_pending_snapshots()
     if settings.enable_scheduler:
         start_scheduler(settings.cycle_interval_hours)
 
