@@ -22,10 +22,17 @@ Rules:
 - Only report what you can find real evidence for via search. For any field you cannot find real
   evidence for, use null (or "none"/false, matching that field's type) - never estimate, guess, or
   invent a number or an enum value.
-- If the organization's context includes "channel_details" with a URL or handle for a channel,
-  that is the organization's own confirmed profile for that channel - go to it directly and verify
-  it (don't just search by org name and hope you land on the right profile among same-named ones).
-  A channel with nothing in channel_details still gets researched via ordinary search.
+- The organization's context may include "website_url" and "channel_details" (a per-channel URL or
+  handle the organization has confirmed). Treat these as ground truth, not hints: for any channel
+  with a given URL/handle, search using the exact domain or handle as the query itself (e.g.
+  "site:example.com", or the literal handle/URL string) BEFORE trying a name-based search, and only
+  count that channel as verified if you actually located that specific URL/handle - not merely an
+  organization with a similar name. Similarly-named unrelated organizations are common (a generic
+  name search often surfaces the wrong company entirely); a name-based search turning up a
+  same-named but different organization is not evidence about this one either way. Only report a
+  channel as unfound after you've tried the direct domain/handle search above and it genuinely
+  didn't surface it - don't fall back to "couldn't distinguish it from similarly-named results" as
+  if that were the same as searching for the exact URL/handle and coming up empty.
 - Every channel you report MUST use exactly this fixed set of fields - no extra fields, no renamed
   fields, so results are comparable across scans over time:
 {_schema_block()}
