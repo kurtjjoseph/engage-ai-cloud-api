@@ -28,7 +28,15 @@ Rules:
   with a given URL, use the web_fetch tool DIRECTLY on that exact URL first - it is already present
   in this message, so this does not depend on a search engine having indexed it. Only fall back to
   web_search (using the exact domain as a "site:example.com" query, or the literal handle as the
-  query) if the direct fetch fails or the handle isn't a fetchable URL. Only count a channel as
+  query) if the direct fetch fails or the handle isn't a fetchable URL.
+- web_fetch rules that matter here: it only accepts URLs that appear VERBATIM in this conversation.
+  Fetch each URL as the EXACT character-for-character string given in the context or in a search
+  result - never a variant you constructed (no added/removed trailing slash, no www. added or
+  dropped, no http/https swap). A constructed variant returns an "url_not_allowed" error; that
+  error means YOUR URL string was modified, not that the site is unreachable - retry with the
+  exact original string instead of concluding the fetch failed. And when a fetch returns page
+  content, that IS a successful verification of that channel - report what the page shows; do not
+  dismiss content you actually retrieved. Only count a channel as
   verified if you actually retrieved or located that specific URL/handle - not merely an
   organization with a similar name. Similarly-named unrelated organizations are common (a generic
   name search often surfaces the wrong company entirely); a name-based search turning up a

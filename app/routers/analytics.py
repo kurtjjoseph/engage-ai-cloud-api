@@ -81,7 +81,7 @@ def _execute_scan(snapshot_id: int, org_context: dict, channels: list[str] | Non
             # answered from logs when someone reports stale analytics.
             print(
                 f"[analytics] snapshot {snapshot.id} complete: org_score={org_score}, "
-                f"{len(scored_channels)} channels, summary={str(snapshot.summary)[:120]!r}",
+                f"{len(scored_channels)} channels, summary={str(snapshot.summary)[:500]!r}",
                 flush=True,
             )
         except Exception as exc:  # noqa: BLE001 - deliberately broad: this must never leave the snapshot stuck "pending"
