@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.9.0
+Stable tag: 0.9.1
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -27,6 +27,9 @@ Engage AI connects your WordPress site to the Engage AI Cloud API. It does three
 6. Go to Engage AI > Generate Content for the church-engagement generators, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.9.1 =
+* Fixed: scans, campaign generation, and agent check-in cycles could hit "cURL error 28: Operation timed out after 45001 milliseconds" - these all call the API's Claude-backed endpoints, which routinely take 30-90s (longer for scans now that they use web_fetch too), well past the 45-second timeout every API call used by default. These three now get up to 180s (120s for campaign generation).
 
 = 0.9.0 =
 * Added a Settings > Channel details section: record each channel's actual profile URL/handle once it exists, so the Analytics module verifies it directly instead of guessing from the organization name.

@@ -139,7 +139,10 @@ class EngageAI_Api_Client
         if (!empty($query)) {
             $path .= '?' . implode('&', $query);
         }
-        return $this->request('POST', $path);
+        // A scan makes several web_search/web_fetch tool calls to Claude and
+        // routinely takes 30-90s (see the engage-ai-scan skill's own guidance) -
+        // the default 45s timeout was already marginal before web_fetch, more so now.
+        return $this->request('POST', $path, null, true, 180);
     }
 
     /**
@@ -212,7 +215,7 @@ class EngageAI_Api_Client
      */
     public function generate(string $task, array $payload)
     {
-        return $this->request('POST', '/campaigns/' . $task, $payload);
+        return $this->request('POST', '/campaigns/' . $task, $payload, true, 120);
     }
 
     /**
@@ -257,7 +260,7 @@ class EngageAI_Api_Client
      */
     public function run_cycle(int $org_id, string $niche)
     {
-        return $this->request('POST', '/organizations/' . $org_id . '/agents/' . $niche . '/cycles/run');
+        return $this->request('POST', '/organizations/' . $org_id . '/agents/' . $niche . '/cycles/run', null, true, 180);
     }
 
     /**
@@ -277,9 +280,14 @@ class EngageAI_Api_Client
     }
 
     /**
+     * @param int $timeout Seconds to wait for a response. The default (45s) covers
+     * ordinary CRUD calls; callers that hit an endpoint backed by an LLM call - a
+     * scan, an agent cycle, a campaign generation - pass a longer value, since
+     * those routinely take 30-90s and can run longer once web_fetch is involved
+     * (see run_analytics_scan/run_cycle/generate below).
      * @return array|WP_Error decoded JSON body, or WP_Error on failure
      */
-    private function request(string $method, string $path, ?array $body = null, bool $use_auth = true)
+    private function request(string $method, string $path, ?array $body = null, bool $use_auth = true, int $timeout = 45)
     {
         $base_url = $this->get_base_url();
         if ($base_url === '') {
@@ -296,10 +304,18 @@ class EngageAI_Api_Client
             $headers['Authorization'] = 'Bearer ' . $token;
         }
 
+        // A long-running HTTP call still gets cut off by PHP's own script time
+        // limit unless that's raised too - bump it to match whenever the caller
+        // asked for more than the ordinary-request timeout. Guarded because some
+        // hosts disable set_time_limit() entirely.
+        if ($timeout > 45 && function_exists('set_time_limit')) {
+            set_time_limit($timeout + 15);
+        }
+
         $args = [
             'method' => $method,
             'headers' => $headers,
-            'timeout' => 45,
+            'timeout' => $timeout,
         ];
 
         if ($body !== null) {
