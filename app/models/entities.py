@@ -157,6 +157,12 @@ class AnalyticsSnapshot(Base):
     # None = full 8-channel sweep (the default); otherwise the specific
     # channels this scan was scoped to, e.g. ["website"].
     requested_channels: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # "pending" while the scan runs in the background (see routers/analytics.py's
+    # run_scan/_execute_scan), "failed" if it raised, "complete" once scored and
+    # written. Old rows predating this column get NULL via sync_missing_columns() -
+    # every reader treats NULL the same as "complete" (status not in the two
+    # in-progress-or-broken values), so nothing needs a backfill.
+    status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     organization = relationship("Organization", back_populates="analytics_snapshots")

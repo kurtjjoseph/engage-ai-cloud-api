@@ -131,6 +131,9 @@ class AnalyticsSnapshotOut(BaseModel):
     org_score_breakdown: list[dict] | None
     sources: list[str] | None
     requested_channels: list[str] | None
+    # "pending" while the scan runs in the background, "failed" if it raised,
+    # null/"complete" once real data is written - see AnalyticsSnapshot.status.
+    status: str | None
     created_at: datetime
 
     class Config:

@@ -18,7 +18,14 @@ def compute_insights(db: Session, organization_id: int) -> dict | None:
         .limit(20)
         .all()
     )
-    full_sweeps = [s for s in recent if not s.requested_channels][:6]
+    # Skip snapshots the background scan hasn't finished (or failed) writing -
+    # see AnalyticsSnapshot.status. A pending/failed snapshot has no real
+    # channel data, so treating it as "the latest full sweep" would blank out
+    # everything until the old rule (any full sweep is fair game) let it in.
+    full_sweeps = [
+        s for s in recent
+        if not s.requested_channels and s.status not in ("pending", "failed")
+    ][:6]
     if not full_sweeps:
         return None
 
@@ -48,6 +55,7 @@ def compute_insights(db: Session, organization_id: int) -> dict | None:
     newer_partial_scans = [
         s for s in recent
         if s.requested_channels and s.created_at > latest_full_sweep.created_at
+        and s.status not in ("pending", "failed")
     ]
     for snap in reversed(newer_partial_scans):  # oldest-first, so the newest override wins last
         for entry in snap.channels or []:

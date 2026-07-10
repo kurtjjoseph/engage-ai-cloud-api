@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.deps import get_current_user
 from app.models.entities import AnalyticsSnapshot, ContentItem, Organization, Publication, PublicationSnapshot, User
 from app.routers.organizations import get_owned_org
@@ -36,40 +36,75 @@ def _org_context(org: Organization) -> dict:
     }
 
 
-@router.post("/scan", response_model=AnalyticsSnapshotOut)
+def _execute_scan(snapshot_id: int, org_context: dict, channels: list[str] | None, include_pages: bool) -> None:
+    """Runs the actual Claude call, scores the result, and writes it onto the
+    already-created pending snapshot. Called from a FastAPI background task,
+    so it opens its own DB session (the request-scoped one is long gone by
+    the time this runs) - same pattern as services/scheduler.py's background
+    agent-cycle job. Any exception here is caught and recorded as a "failed"
+    snapshot rather than left "pending" forever."""
+    db = SessionLocal()
+    try:
+        snapshot = db.query(AnalyticsSnapshot).filter(AnalyticsSnapshot.id == snapshot_id).first()
+        if snapshot is None:
+            return
+
+        try:
+            result = search_service.scan(org_context, channels=channels, include_pages=include_pages)
+
+            scored_channels = []
+            channel_scores: dict[str, int] = {}
+            for entry in result.get("channels", []):
+                score, breakdown = score_channel(entry.get("channel"), entry.get("kpis"))
+                channel_scores[entry.get("channel")] = score
+                scored_channels.append({**entry, "score": score, "score_breakdown": breakdown})
+
+            # An org score built from a channel-scoped scan would silently treat
+            # every unchecked channel as 0 (score_org's "missing = 0" rule,
+            # correct for a full sweep, misleading here) - only a full sweep has
+            # enough data to represent the whole org, so a scoped scan just
+            # doesn't get an org_score at all.
+            if channels is None:
+                org_score, org_breakdown = score_org(channel_scores)
+            else:
+                org_score, org_breakdown = None, None
+
+            snapshot.summary = result.get("summary")
+            snapshot.channels = scored_channels
+            snapshot.org_score = org_score
+            snapshot.org_score_breakdown = org_breakdown
+            snapshot.sources = result.get("sources", [])
+            snapshot.status = "complete"
+        except Exception as exc:  # noqa: BLE001 - deliberately broad: this must never leave the snapshot stuck "pending"
+            snapshot.status = "failed"
+            snapshot.summary = f"Scan failed: {exc}"
+
+        db.commit()
+    finally:
+        db.close()
+
+
+@router.post("/scan", response_model=AnalyticsSnapshotOut, status_code=202)
 def run_scan(
     org_id: int,
+    background_tasks: BackgroundTasks,
     channels: list[str] | None = Query(None, description=f"Scope the scan to specific channels: {', '.join(KNOWN_CHANNELS)}. Omit for the full sweep."),
     include_pages: bool = Query(False, description="Adds a per-page visibility ranking to the website channel. Only applies when 'website' is in scope. Costs more (more searches, bigger response)."),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Runs one web-search-based scan now. The first scan for an org is
-    flagged as its baseline; every later scan is meant to be compared
-    against that fixed reference point."""
+    """Starts one web-search-based scan and returns immediately with a
+    "pending" snapshot - the scan itself (a Claude call with web_search/
+    web_fetch tool use) routinely takes 30-90s+, too long to hold an HTTP
+    request open for. Poll GET .../analytics (or /insights, once a full
+    sweep completes) and watch for this snapshot's status to leave
+    "pending". The first scan for an org is flagged as its baseline; every
+    later scan is meant to be compared against that fixed reference point."""
     org = get_analytics_enabled_org(org_id, db, user)
 
     valid_channels = [c for c in channels if c in KNOWN_CHANNELS] if channels else None
     if channels and not valid_channels:
         raise HTTPException(status_code=400, detail=f"None of the requested channels are recognized. Valid channels: {', '.join(KNOWN_CHANNELS)}")
-
-    result = search_service.scan(_org_context(org), channels=valid_channels, include_pages=include_pages)
-
-    scored_channels = []
-    channel_scores: dict[str, int] = {}
-    for entry in result.get("channels", []):
-        score, breakdown = score_channel(entry.get("channel"), entry.get("kpis"))
-        channel_scores[entry.get("channel")] = score
-        scored_channels.append({**entry, "score": score, "score_breakdown": breakdown})
-
-    # An org score built from a channel-scoped scan would silently treat every
-    # unchecked channel as 0 (score_org's "missing = 0" rule, correct for a full
-    # sweep, misleading here) - only a full sweep has enough data to represent
-    # the whole org, so a scoped scan just doesn't get an org_score at all.
-    if valid_channels is None:
-        org_score, org_breakdown = score_org(channel_scores)
-    else:
-        org_score, org_breakdown = None, None
 
     is_first = (
         db.query(AnalyticsSnapshot).filter(AnalyticsSnapshot.organization_id == org.id).first() is None
@@ -78,16 +113,15 @@ def run_scan(
     snapshot = AnalyticsSnapshot(
         organization_id=org.id,
         is_baseline=is_first,
-        summary=result.get("summary"),
-        channels=scored_channels,
-        org_score=org_score,
-        org_score_breakdown=org_breakdown,
-        sources=result.get("sources", []),
         requested_channels=valid_channels,
+        status="pending",
     )
     db.add(snapshot)
     db.commit()
     db.refresh(snapshot)
+
+    background_tasks.add_task(_execute_scan, snapshot.id, _org_context(org), valid_channels, include_pages)
+
     return snapshot
 
 

@@ -139,10 +139,13 @@ class EngageAI_Api_Client
         if (!empty($query)) {
             $path .= '?' . implode('&', $query);
         }
-        // A scan makes several web_search/web_fetch tool calls to Claude and
-        // routinely takes 30-90s (see the engage-ai-scan skill's own guidance) -
-        // the default 45s timeout was already marginal before web_fetch, more so now.
-        return $this->request('POST', $path, null, true, 180);
+        // The API now starts the scan in the background and returns a
+        // "pending" snapshot immediately (see POST .../analytics/scan) -
+        // the slow part (Claude with web_search/web_fetch, 30-90s+) no
+        // longer happens inside this HTTP request, so the default timeout
+        // is plenty. Poll get_analytics_snapshots()/get_analytics_insights()
+        // to see the scan finish.
+        return $this->request('POST', $path);
     }
 
     /**

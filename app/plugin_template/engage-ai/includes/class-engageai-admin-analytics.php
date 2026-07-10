@@ -105,7 +105,9 @@ class EngageAI_Admin_Analytics
             $this->redirect_with_notice('error', $result->get_error_message());
         }
 
-        $this->redirect_with_notice('success', __('Scan complete.', 'engage-ai'));
+        // The scan now runs in the background (see POST .../analytics/scan) -
+        // this redirect happens the instant it's queued, well before it's done.
+        $this->redirect_with_notice('success', __('Scan started - this can take a minute or two. Refresh this page to see it once it\'s ready.', 'engage-ai'));
     }
 
     public function handle_register_publication(): void
@@ -346,42 +348,48 @@ class EngageAI_Admin_Analytics
                         ?>
                     </p>
                 <?php endif; ?>
-                <?php if (!empty($latest['summary'])): ?>
-                    <p><?php echo esc_html($latest['summary']); ?></p>
-                <?php endif; ?>
-
-                <?php if (!empty($latest['channels'])): ?>
-                    <div class="engageai-tickets">
-                        <?php foreach ($latest['channels'] as $channel): ?>
-                            <div class="engageai-card">
-                                <h3>
-                                    <?php echo esc_html($this->channel_label($channel['channel'] ?? '')); ?>
-                                    <?php if (isset($channel['score'])): ?>
-                                        <?php $this->render_score_badge($channel['score']); ?>
-                                    <?php endif; ?>
-                                </h3>
-                                <?php if (!empty($channel['kpis']) && is_array($channel['kpis'])): ?>
-                                    <div class="engageai-subfields">
-                                        <?php foreach ($channel['kpis'] as $key => $value): ?>
-                                            <?php if ($value === null) continue; ?>
-                                            <p><strong><?php echo esc_html(ucwords(str_replace('_', ' ', (string) $key))); ?>:</strong> <?php echo esc_html(is_bool($value) ? ($value ? 'yes' : 'no') : (string) $value); ?></p>
-                                        <?php endforeach; ?>
-                                    </div>
-                                <?php endif; ?>
-                                <?php if (!empty($channel['notes'])): ?>
-                                    <p class="engageai-why"><em><?php echo esc_html($channel['notes']); ?></em></p>
-                                <?php endif; ?>
-                                <?php if (!empty($channel['score_breakdown'])): ?>
-                                    <?php $this->render_breakdown_details($channel['score_breakdown']); ?>
-                                <?php endif; ?>
-                                <?php if (!empty($channel['pages']) && is_array($channel['pages'])): ?>
-                                    <?php $this->render_page_ranking($channel['pages']); ?>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
+                <?php if (($latest['status'] ?? null) === 'pending'): ?>
+                    <div class="notice notice-info inline"><p><?php esc_html_e('Scan in progress - this runs in the background and can take a minute or two. Refresh this page to see the result.', 'engage-ai'); ?></p></div>
+                <?php elseif (($latest['status'] ?? null) === 'failed'): ?>
+                    <div class="notice notice-error inline"><p><?php echo esc_html($latest['summary'] ?? __('Scan failed.', 'engage-ai')); ?></p></div>
                 <?php else: ?>
-                    <p><?php esc_html_e('No channels with findable public data this scan.', 'engage-ai'); ?></p>
+                    <?php if (!empty($latest['summary'])): ?>
+                        <p><?php echo esc_html($latest['summary']); ?></p>
+                    <?php endif; ?>
+
+                    <?php if (!empty($latest['channels'])): ?>
+                        <div class="engageai-tickets">
+                            <?php foreach ($latest['channels'] as $channel): ?>
+                                <div class="engageai-card">
+                                    <h3>
+                                        <?php echo esc_html($this->channel_label($channel['channel'] ?? '')); ?>
+                                        <?php if (isset($channel['score'])): ?>
+                                            <?php $this->render_score_badge($channel['score']); ?>
+                                        <?php endif; ?>
+                                    </h3>
+                                    <?php if (!empty($channel['kpis']) && is_array($channel['kpis'])): ?>
+                                        <div class="engageai-subfields">
+                                            <?php foreach ($channel['kpis'] as $key => $value): ?>
+                                                <?php if ($value === null) continue; ?>
+                                                <p><strong><?php echo esc_html(ucwords(str_replace('_', ' ', (string) $key))); ?>:</strong> <?php echo esc_html(is_bool($value) ? ($value ? 'yes' : 'no') : (string) $value); ?></p>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($channel['notes'])): ?>
+                                        <p class="engageai-why"><em><?php echo esc_html($channel['notes']); ?></em></p>
+                                    <?php endif; ?>
+                                    <?php if (!empty($channel['score_breakdown'])): ?>
+                                        <?php $this->render_breakdown_details($channel['score_breakdown']); ?>
+                                    <?php endif; ?>
+                                    <?php if (!empty($channel['pages']) && is_array($channel['pages'])): ?>
+                                        <?php $this->render_page_ranking($channel['pages']); ?>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <p><?php esc_html_e('No channels with findable public data this scan.', 'engage-ai'); ?></p>
+                    <?php endif; ?>
                 <?php endif; ?>
 
                 <?php if (!empty($latest['sources'])): ?>
@@ -423,7 +431,13 @@ class EngageAI_Admin_Analytics
                                 <td><?php echo esc_html($s['created_at'] ?? ''); ?></td>
                                 <td><?php echo !empty($s['is_baseline']) ? esc_html__('Yes', 'engage-ai') : ''; ?></td>
                                 <td><?php echo !empty($s['requested_channels']) ? esc_html(implode(', ', array_map([$this, 'channel_label'], $s['requested_channels']))) : esc_html__('All', 'engage-ai'); ?></td>
-                                <td><?php echo esc_html($s['summary'] ?? ''); ?></td>
+                                <td>
+                                    <?php if (($s['status'] ?? null) === 'pending'): ?>
+                                        <em><?php esc_html_e('in progress...', 'engage-ai'); ?></em>
+                                    <?php else: ?>
+                                        <?php echo esc_html($s['summary'] ?? ''); ?>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
