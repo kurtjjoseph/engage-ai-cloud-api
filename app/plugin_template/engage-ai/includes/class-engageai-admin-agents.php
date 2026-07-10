@@ -297,6 +297,10 @@ class EngageAI_Admin_Agents
 
             <?php $this->render_payload($payload); ?>
 
+            <?php if (!$show_decision_buttons && !empty($t['generated_content'])): ?>
+                <?php $this->render_generated_content($t['generated_content']); ?>
+            <?php endif; ?>
+
             <?php if ($show_decision_buttons): ?>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="engageai-decision-form">
                     <input type="hidden" name="action" value="engageai_decide_ticket">
@@ -315,6 +319,25 @@ class EngageAI_Admin_Agents
             <?php endif; ?>
         </div>
         <?php
+    }
+
+    /**
+     * The deliverable the API generated after a "high risk" ticket got
+     * approved (see decide_ticket in the API's routers/agents.py) - same
+     * payload shape as a "low" risk ticket's own payload, so render_payload()
+     * already knows how to display it. A generation failure is stored as
+     * {"error": "..."} instead, shown as a plain notice.
+     */
+    private function render_generated_content(array $content): void
+    {
+        echo '<div class="engageai-generated">';
+        echo '<h4>' . esc_html__('Generated deliverable', 'engage-ai') . '</h4>';
+        if (!empty($content['error'])) {
+            echo '<div class="notice notice-error inline"><p>' . esc_html($content['error']) . '</p></div>';
+        } else {
+            $this->render_payload($content);
+        }
+        echo '</div>';
     }
 
     /**

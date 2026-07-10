@@ -154,6 +154,26 @@ name which channel this cycle's tickets are targeting and why (its gap size).
 }
 
 
+# Used to finish a "high risk" ticket right after a human approves it -
+# that risk tier withholds the actual work until sign-off (see
+# BASE_PROTOCOL above), so approval is the first point a finished draft can
+# exist. "low" risk tickets already have their draft in payload and never
+# reach this.
+DELIVERABLE_PROTOCOL = """You are finishing ONE ticket that a human just approved. It was proposed as
+"risk": "high" (spends money, posts publicly, or contacts someone directly), so its existing payload
+is only a proposal - that risk tier withholds the actual work until a human signs off, so no finished
+draft exists yet.
+
+Write the real, ready-to-use deliverable now - the exact copy, email, script, or content the ticket
+described - using the SAME payload shape this niche uses for a "low" risk ticket (see the niche
+contract below). A human is about to use this as-is, not read a description of what you'd write.
+
+Return ONLY valid JSON, no markdown code fences, no commentary - just the payload object itself,
+matching this niche's payload contract with every content field fully written out, e.g.:
+{"asset_type": "...", "content": "..."}
+"""
+
+
 def _extract_json(text: str) -> dict:
     text = text.strip()
     if text.startswith("```"):
@@ -193,3 +213,22 @@ class AgentAI:
             return _extract_json(text)
         except json.JSONDecodeError:
             return {"summary": "Agent returned non-JSON output; this cycle produced no tickets.", "tickets": []}
+
+    def generate_deliverable(self, niche: str, org_context: dict, ticket: dict) -> dict:
+        if not self.client:
+            return {"error": "ANTHROPIC_API_KEY is not set - deliverable generation unavailable."}
+
+        system = DELIVERABLE_PROTOCOL + "\n" + NICHE_PROMPTS.get(niche, "")
+        user_payload = {"organization": org_context, "ticket": ticket}
+
+        response = self.client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=4096,
+            system=system,
+            messages=[{"role": "user", "content": json.dumps(user_payload)}],
+        )
+        text = "".join(block.text for block in response.content if block.type == "text")
+        try:
+            return _extract_json(text)
+        except json.JSONDecodeError:
+            return {"error": "Deliverable generation returned non-JSON output; try approving again."}

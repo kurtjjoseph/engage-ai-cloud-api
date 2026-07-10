@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.10.0
+Stable tag: 0.11.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -17,6 +17,8 @@ Engage AI connects your WordPress site to the Engage AI Cloud API. It does three
 * **Agent modules** (one per Claude AI side hustle — physical product business, reselling, YouTube channel growth, paid Q&A, local service business, app building, UGC creation, coaching): each runs its own autonomous check-in cycle, proposing concrete work as tickets you approve, reject, or redirect from the Agents page. Anything reversible it drafts immediately; anything that would spend money or act publicly is held for your explicit approval.
 * **Analytics**: searches the web for the organization's public digital footprint (website, social profiles, reviews, etc.) and records what it finds per channel. The first scan is flagged as the baseline so later scans have a fixed reference point to compare against, instead of just comparing to whatever the last scan said.
 
+The AI Assistant page (Engage AI > AI Assistant) answers free-form questions grounded in the organization's stored context, for anything that doesn't fit one of the structured generators or a specific agent niche.
+
 = Setup =
 
 1. Deploy the Engage AI Cloud API (see the `engage-ai-cloud-api` project) and note its base URL.
@@ -27,6 +29,10 @@ Engage AI connects your WordPress site to the Engage AI Cloud API. It does three
 6. Go to Engage AI > Generate Content for the church-engagement generators, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.11.0 =
+* Added an AI Assistant page: ask a free-form question, answered using the organization's stored context (mission, tone, audience, etc) - for anything that doesn't fit the structured generators or a specific agent niche.
+* Approving a "high risk" agent ticket (one that spends money, posts publicly, or contacts someone directly) now triggers AI generation of the actual deliverable content, shown right on the ticket once approved. Previously these tickets only ever held a proposal description - the admin had to write the real thing by hand after approving.
 
 = 0.10.0 =
 * Analytics scans now run asynchronously: "Run new scan" returns instantly instead of holding the page open for 30s-3min+ waiting on Claude. The scan runs in the background; the Analytics page shows "Scan in progress" until it lands, then refresh to see the result. This replaces the timeout-raising in 0.9.1's scan fix - the scan no longer happens inside the HTTP request at all, so no timeout is long enough to matter.

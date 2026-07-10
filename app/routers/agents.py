@@ -6,9 +6,11 @@ from app.deps import get_current_user
 from app.models.entities import AgentRun, Organization, Ticket, User
 from app.routers.organizations import get_owned_org
 from app.schemas import AgentRunOut, TicketDecision, TicketOut
+from app.services.agent_ai import AgentAI
 from app.services.cycle_engine import is_module_enabled, run_cycle_for_niche
 
 router = APIRouter(prefix="/organizations/{org_id}/agents/{niche}", tags=["agents"])
+ai = AgentAI()
 
 
 def get_enabled_org(org_id: int, niche: str, db: Session, user: User) -> Organization:
@@ -19,6 +21,19 @@ def get_enabled_org(org_id: int, niche: str, db: Session, user: User) -> Organiz
             detail=f"Module 'agent:{niche}' is not enabled for this organization. Enable it via PATCH /organizations/{org_id}/modules first.",
         )
     return org
+
+
+def _org_context(org: Organization) -> dict:
+    """Same shape as cycle_engine.py's private helper of the same name -
+    kept as its own copy rather than importing a leading-underscore name
+    across modules."""
+    return {
+        "name": org.name,
+        "org_type": org.org_type,
+        "mission": org.mission,
+        "tone": org.tone,
+        "audience": org.audience,
+    }
 
 
 @router.post("/cycles/run", response_model=AgentRunOut)
@@ -64,7 +79,7 @@ def decide_ticket(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    get_enabled_org(org_id, niche, db, user)
+    org = get_enabled_org(org_id, niche, db, user)
     ticket = (
         db.query(Ticket)
         .filter(Ticket.id == ticket_id, Ticket.organization_id == org_id, Ticket.niche == niche)
@@ -75,6 +90,25 @@ def decide_ticket(
 
     if payload.decision == "approve":
         ticket.status = "approved"
+        # "low" risk tickets already carry their finished draft in payload
+        # (BASE_PROTOCOL) - only "high" risk tickets, held back as
+        # proposals-only until a human signs off, need the deliverable
+        # written now. A generation hiccup shouldn't block the approval
+        # itself, so failures land in generated_content instead of raising.
+        if ticket.risk == "high":
+            try:
+                ticket.generated_content = ai.generate_deliverable(
+                    niche=niche,
+                    org_context=_org_context(org),
+                    ticket={
+                        "title": ticket.title,
+                        "rationale": ticket.rationale,
+                        "risk": ticket.risk,
+                        "payload": ticket.payload,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001 - deliberately broad, see comment above
+                ticket.generated_content = {"error": f"Deliverable generation failed: {exc}"}
     elif payload.decision == "reject":
         ticket.status = "rejected"
     elif payload.decision == "redirect":

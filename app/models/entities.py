@@ -104,6 +104,13 @@ class Ticket(Base):
     risk: Mapped[str] = mapped_column(String(20), default="low")
     status: Mapped[str] = mapped_column(String(20), default="proposed", index=True)
     payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Finished deliverable the API generated after a "high risk" ticket got
+    # approved (see decide_ticket in routers/agents.py) - "low" risk tickets
+    # already carry their draft in payload per BASE_PROTOCOL, so this stays
+    # null for those. Also null until an approval happens, and holds
+    # {"error": "..."} instead of raising if generation itself failed, since
+    # a generation hiccup shouldn't block the approval.
+    generated_content: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

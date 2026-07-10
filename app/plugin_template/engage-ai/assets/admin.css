@@ -2,8 +2,19 @@
     margin-bottom: 1em;
 }
 
-.engageai-generate-form textarea {
+.engageai-generate-form textarea,
+.engageai-assistant-form textarea {
     width: 100%;
+}
+
+.engageai-generated {
+    margin-top: 1em;
+    padding-top: 1em;
+    border-top: 1px solid #dcdcde;
+}
+
+.engageai-generated h4 {
+    margin-bottom: 0.25em;
 }
 
 .engageai-channels {

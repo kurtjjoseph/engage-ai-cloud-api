@@ -59,6 +59,7 @@ class TicketOut(BaseModel):
     risk: str
     status: str
     payload: dict | None
+    generated_content: dict | None
     decision_note: str | None
     created_at: datetime
     decided_at: datetime | None
@@ -70,6 +71,15 @@ class TicketOut(BaseModel):
 class TicketDecision(BaseModel):
     decision: str = Field(description="approve | reject | redirect")
     note: str | None = None
+
+
+class AssistantAskIn(BaseModel):
+    question: str = Field(min_length=1)
+
+
+class AssistantAskOut(BaseModel):
+    question: str
+    answer: str
 
 
 class AgentRunOut(BaseModel):

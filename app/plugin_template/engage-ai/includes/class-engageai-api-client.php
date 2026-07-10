@@ -251,10 +251,29 @@ class EngageAI_Api_Client
      */
     public function decide_ticket(int $org_id, string $niche, int $ticket_id, string $decision, string $note = '')
     {
+        // Approving a "high risk" ticket now triggers AI generation of its
+        // deliverable server-side (see decide_ticket in the API's
+        // routers/agents.py) - give that the same LLM-call budget as
+        // generate()/run_cycle() below. Reject/redirect never call the
+        // model, so they stay on the ordinary default timeout.
+        $timeout = $decision === 'approve' ? 120 : 45;
         return $this->request('POST', '/organizations/' . $org_id . '/agents/' . $niche . '/tickets/' . $ticket_id . '/decision', [
             'decision' => $decision,
             'note' => $note !== '' ? $note : null,
-        ]);
+        ], true, $timeout);
+    }
+
+    /**
+     * Free-form question answered using the org's stored context (mission,
+     * tone, audience, etc) - for anything that doesn't fit a structured
+     * generator or a specific agent niche.
+     * @return array|WP_Error {"question", "answer"}
+     */
+    public function ask_assistant(int $org_id, string $question)
+    {
+        return $this->request('POST', '/organizations/' . $org_id . '/assistant/ask', [
+            'question' => $question,
+        ], true, 120);
     }
 
     /**
