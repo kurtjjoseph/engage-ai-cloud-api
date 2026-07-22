@@ -72,6 +72,15 @@ def compute_insights(db: Session, organization_id: int) -> dict | None:
             "classification": classify_channel_trend(score, prior_scores(channel)),
             "score_breakdown": entry.get("score_breakdown", []),
             "notes": entry.get("notes"),
+            # Reliability flags from the scan reconciliation (services/analytics_reconcile.py):
+            # a held-forward value the web search failed to re-find this run (stale),
+            # when it was last really measured, and whether this channel warrants a
+            # human sanity-check (held value or a suspicious swing). Lets any client
+            # (plugin, CLI) show an honest "not refreshed" / "verify" badge.
+            "stale": bool(entry.get("stale")),
+            "last_measured_at": entry.get("last_measured_at"),
+            "needs_review": bool(entry.get("needs_review")),
+            "review_reason": entry.get("review_reason"),
         })
     ranking.sort(key=lambda r: r["score"], reverse=True)
     for i, r in enumerate(ranking):
@@ -93,4 +102,8 @@ def compute_insights(db: Session, organization_id: int) -> dict | None:
         "baseline_org_score": baseline.org_score if baseline else None,
         "ranking": ranking,
         "summary": latest_full_sweep.summary,
+        # Snapshot-level roll-up: true if the latest sweep was flagged, or any
+        # effective channel is held/anomalous - the one field a report-sender
+        # checks before shipping the monthly report unattended.
+        "needs_review": bool(latest_full_sweep.needs_review) or any(r["needs_review"] for r in ranking),
     }

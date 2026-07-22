@@ -1,0 +1,57 @@
+{
+  "organization": "Vision Outreach Media",
+  "measure_mode": "simulate",
+  "before_org_score": 33,
+  "after_org_score": 39,
+  "delta": 6,
+  "engagements_distributed": 3,
+  "publication_ids": [
+    1,
+    2,
+    3
+  ],
+  "stages": [
+    {
+      "stage": 1,
+      "name": "ANALYSE",
+      "detail": "Read current org_score=33 from snapshot #1.",
+      "count": 8
+    },
+    {
+      "stage": 2,
+      "name": "PLAN",
+      "detail": "Selected 3 gap-closing engagement(s) from 8 ranked channels.",
+      "count": 3
+    },
+    {
+      "stage": 3,
+      "name": "COPY",
+      "detail": "Ensured every planned engagement carries non-empty, written content.",
+      "count": 3
+    },
+    {
+      "stage": 4,
+      "name": "GENERATE",
+      "detail": "Normalized and validated engagements by type: 1 channel_setup, 1 social_post, 1 website_post.",
+      "count": 3
+    },
+    {
+      "stage": 5,
+      "name": "APPROVE",
+      "detail": "Auto-approved 3 engagement(s) (cycle_auto_approve=True).",
+      "count": 3
+    },
+    {
+      "stage": 6,
+      "name": "DISTRIBUTE",
+      "detail": "Distributed 3 engagement(s) via channel adapters.",
+      "count": 3
+    },
+    {
+      "stage": 7,
+      "name": "MEASURE",
+      "detail": "Simulated projection written as a new non-baseline AnalyticsSnapshot. after_org_score=39.",
+      "count": 3
+    }
+  ]
+}

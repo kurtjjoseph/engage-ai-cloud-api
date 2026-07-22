@@ -172,6 +172,15 @@ class EngageAI_Admin_Analytics
             return;
         }
 
+        // Per-scan details view (?scan=<id>): every scan attempt has one, showing
+        // all data used in that request. Read-only GET nav param, so absint is
+        // the only sanitisation needed.
+        $scan_id = isset($_GET['scan']) ? absint(wp_unslash($_GET['scan'])) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        if ($scan_id) {
+            $this->render_scan_details($org_id, $scan_id);
+            return;
+        }
+
         $snapshots = $this->client->get_analytics_snapshots($org_id);
         if (is_wp_error($snapshots)) {
             if (strpos($snapshots->get_error_message(), '403') !== false || strpos($snapshots->get_error_message(), 'not enabled') !== false) {
@@ -427,8 +436,9 @@ class EngageAI_Admin_Analytics
                     </thead>
                     <tbody>
                         <?php foreach ($snapshots as $s): ?>
+                            <?php $sid = (int) ($s['id'] ?? 0); $scan_link = esc_url(admin_url('admin.php?page=engageai-analytics&scan=' . $sid)); ?>
                             <tr>
-                                <td><?php echo esc_html($s['created_at'] ?? ''); ?></td>
+                                <td><a href="<?php echo $scan_link; ?>"><?php echo esc_html($s['created_at'] ?? ''); ?></a></td>
                                 <td><?php echo !empty($s['is_baseline']) ? esc_html__('Yes', 'engage-ai') : ''; ?></td>
                                 <td><?php echo !empty($s['requested_channels']) ? esc_html(implode(', ', array_map([$this, 'channel_label'], $s['requested_channels']))) : esc_html__('All', 'engage-ai'); ?></td>
                                 <td>
@@ -437,6 +447,8 @@ class EngageAI_Admin_Analytics
                                     <?php else: ?>
                                         <?php echo esc_html($s['summary'] ?? ''); ?>
                                     <?php endif; ?>
+                                    <?php if (!empty($s['needs_review'])): ?> &middot; <span class="engageai-classification engageai-classification-white_space"><?php esc_html_e('needs review', 'engage-ai'); ?></span><?php endif; ?>
+                                    &middot; <a href="<?php echo $scan_link; ?>"><?php esc_html_e('details', 'engage-ai'); ?> &rsaquo;</a>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -529,6 +541,111 @@ class EngageAI_Admin_Analytics
     private function channel_label(string $channel): string
     {
         return self::PUBLICATION_CHANNELS[$channel] ?? self::CHANNELS[$channel] ?? ucwords(str_replace('_', ' ', $channel));
+    }
+
+    /**
+     * Per-scan details view: every piece of data used in the request - the org
+     * context sent to the model (incl. pinned channel handles), the model/tool,
+     * which channels were asked for - plus, per channel, the raw KPIs the model
+     * returned, the exact rule-by-rule scoring, the sources it drew on, and any
+     * reconciliation flag (a held/stale value or a flagged swing). Reachable for
+     * EVERY scan attempt (?scan=<id>), including failed ones.
+     */
+    private function render_scan_details(int $org_id, int $scan_id): void
+    {
+        $s = $this->client->get_analytics_snapshot($org_id, $scan_id);
+        $back = esc_url(admin_url('admin.php?page=engageai-analytics'));
+        echo '<div class="wrap">';
+        echo '<p><a href="' . $back . '">&larr; ' . esc_html__('Back to analytics', 'engage-ai') . '</a></p>';
+        if (is_wp_error($s)) {
+            echo '<div class="notice notice-error"><p>' . esc_html($s->get_error_message()) . '</p></div></div>';
+            return;
+        }
+        $status = (string) ($s['status'] ?? 'complete');
+        $rc = is_array($s['request_context'] ?? null) ? $s['request_context'] : [];
+        $oc = is_array($rc['org_context'] ?? null) ? $rc['org_context'] : [];
+        ?>
+        <h1><?php printf(esc_html__('Scan #%d', 'engage-ai'), (int) ($s['id'] ?? $scan_id)); ?></h1>
+        <p>
+            <strong><?php echo esc_html(ucfirst($status)); ?></strong>
+            &middot; <?php echo esc_html($s['created_at'] ?? ''); ?>
+            <?php if (isset($s['duration_seconds']) && $s['duration_seconds'] !== null): ?> &middot; <?php echo esc_html((string) $s['duration_seconds']); ?>s<?php endif; ?>
+            <?php if (!empty($s['is_baseline'])): ?> &middot; <?php esc_html_e('baseline', 'engage-ai'); ?><?php endif; ?>
+            <?php if (!empty($s['needs_review'])): ?> &middot; <span class="engageai-classification engageai-classification-white_space"><?php esc_html_e('needs review', 'engage-ai'); ?></span><?php endif; ?>
+            <?php if (isset($s['org_score']) && $s['org_score'] !== null): ?> &middot; <?php esc_html_e('org score', 'engage-ai'); ?> <?php $this->render_score_badge($s['org_score']); ?><?php endif; ?>
+        </p>
+        <?php if (!empty($s['summary'])): ?><p class="description"><?php echo esc_html($s['summary']); ?></p><?php endif; ?>
+
+        <h2><?php esc_html_e('Data used in the request', 'engage-ai'); ?></h2>
+        <h3><?php esc_html_e('Organization context sent to the model', 'engage-ai'); ?></h3>
+        <table class="widefat striped"><tbody><?php $this->render_kv_rows($oc); ?></tbody></table>
+        <h3><?php esc_html_e('Request parameters', 'engage-ai'); ?></h3>
+        <table class="widefat striped"><tbody>
+        <?php
+        $this->render_kv_rows([
+            'model' => $rc['model'] ?? '-',
+            'channels requested' => !empty($rc['requested_channels']) ? implode(', ', (array) $rc['requested_channels']) : __('full sweep (all 8)', 'engage-ai'),
+            'channels resolved' => !empty($rc['resolved_channels']) ? implode(', ', (array) $rc['resolved_channels']) : '-',
+            'tool' => $rc['tool'] ?? '-',
+            'mode' => $rc['mode'] ?? '-',
+            'include pages' => !empty($rc['include_pages']) ? 'yes' : 'no',
+        ]);
+        ?>
+        </tbody></table>
+
+        <h2><?php esc_html_e('Per-channel data & scoring', 'engage-ai'); ?></h2>
+        <?php if (empty($s['channels'])): ?>
+            <p class="description"><?php printf(esc_html__('No channel data (scan status: %s).', 'engage-ai'), esc_html($status)); ?></p>
+        <?php else: foreach ($s['channels'] as $c): ?>
+            <div style="border:1px solid #dcdcde;border-radius:6px;padding:12px 16px;margin:12px 0;background:#fff;">
+                <h3 style="margin-top:0;">
+                    <?php echo esc_html($this->channel_label($c['channel'] ?? '')); ?>
+                    <?php $this->render_score_badge($c['score'] ?? null); ?>
+                    <?php if (!empty($c['stale'])): ?> <span class="engageai-classification engageai-classification-white_space"><?php esc_html_e('stale · held', 'engage-ai'); ?></span><?php endif; ?>
+                </h3>
+                <?php if (!empty($c['review_reason'])): ?><p class="description">&#9873; <?php echo esc_html($c['review_reason']); ?></p><?php endif; ?>
+                <?php if (!empty($c['stale']) && !empty($c['last_measured_at'])): ?><p class="description"><?php printf(esc_html__('Last really measured: %s', 'engage-ai'), esc_html($c['last_measured_at'])); ?></p><?php endif; ?>
+                <h4><?php esc_html_e('Raw KPIs returned by the model', 'engage-ai'); ?></h4>
+                <table class="widefat striped"><tbody><?php $this->render_kv_rows(is_array($c['kpis'] ?? null) ? $c['kpis'] : []); ?></tbody></table>
+                <?php $this->render_breakdown_details($c['score_breakdown'] ?? []); ?>
+                <?php if (!empty($c['notes'])): ?><p class="description"><?php echo esc_html($c['notes']); ?></p><?php endif; ?>
+                <?php if (!empty($c['sources'])): ?>
+                    <p class="description"><?php esc_html_e('Sources:', 'engage-ai'); ?>
+                        <?php foreach ((array) $c['sources'] as $u): ?><a href="<?php echo esc_url($u); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html($u); ?></a> <?php endforeach; ?>
+                    </p>
+                <?php endif; ?>
+            </div>
+        <?php endforeach; endif; ?>
+
+        <?php if (!empty($s['sources'])): ?>
+            <h2><?php printf(esc_html__('All sources (%d)', 'engage-ai'), count((array) $s['sources'])); ?></h2>
+            <p class="description"><?php foreach ((array) $s['sources'] as $u): ?><a href="<?php echo esc_url($u); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html($u); ?></a> <?php endforeach; ?></p>
+        <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * A two-column key/value table body from an associative array - used for the
+     * request context and each channel's raw KPIs on the scan-details view.
+     * @param array<string, mixed> $data
+     */
+    private function render_kv_rows(array $data): void
+    {
+        if (empty($data)) {
+            echo '<tr><td colspan="2"><em>' . esc_html__('none', 'engage-ai') . '</em></td></tr>';
+            return;
+        }
+        foreach ($data as $k => $v) {
+            if (is_bool($v)) {
+                $val = $v ? 'yes' : 'no';
+            } elseif (is_scalar($v)) {
+                $val = (string) $v;
+            } else {
+                $val = ($v === null || $v === '') ? '-' : (string) wp_json_encode($v);
+            }
+            printf('<tr><th scope="row" style="width:200px;">%s</th><td>%s</td></tr>', esc_html((string) $k), esc_html($val));
+        }
     }
 
     private function render_score_badge($score): void

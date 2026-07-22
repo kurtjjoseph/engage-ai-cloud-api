@@ -21,6 +21,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-settings.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-generate.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-agents.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-analytics.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-cycle.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-dashboard.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-assistant.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-cron.php';
@@ -80,6 +81,7 @@ final class EngageAI_Plugin
         EngageAI_Admin_Generate::instance()->register_hooks();
         EngageAI_Admin_Agents::instance()->register_hooks();
         EngageAI_Admin_Analytics::instance()->register_hooks();
+        EngageAI_Admin_Cycle::instance()->register_hooks();
         EngageAI_Admin_Dashboard::instance()->register_hooks();
         EngageAI_Admin_Assistant::instance()->register_hooks();
     }
@@ -130,6 +132,15 @@ final class EngageAI_Plugin
             'manage_options',
             'engageai-analytics',
             [EngageAI_Admin_Analytics::instance(), 'render_page']
+        );
+
+        add_submenu_page(
+            'engageai-dashboard',
+            __('Engagement Cycle', 'engage-ai'),
+            __('Engagement Cycle', 'engage-ai'),
+            'manage_options',
+            'engageai-cycle',
+            [EngageAI_Admin_Cycle::instance(), 'render_page']
         );
 
         add_submenu_page(

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, JSON
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 
@@ -170,6 +170,22 @@ class AnalyticsSnapshot(Base):
     # every reader treats NULL the same as "complete" (status not in the two
     # in-progress-or-broken values), so nothing needs a backfill.
     status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Set by the scan reconciliation (services/analytics_reconcile.py) when a
+    # channel's value had to be carried forward (a not-found this scan that had
+    # a real prior value - "hold last known" instead of a fabricated 0) or a
+    # channel score swung beyond the anomaly threshold. Signals a human should
+    # eyeball this report before it's trusted/sent. Old rows get NULL, treated
+    # the same as "no review needed" (like status above).
+    needs_review: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Wall-clock seconds the scan took (set in routers/analytics._execute_scan).
+    # Powers the operator dashboard's "average measurement time". Null on old rows.
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Everything that went INTO this scan's request, captured at attempt time
+    # (routers/analytics.run_scan and the scheduler): the org context sent to the
+    # model (name, type, website_url, channel_details/handles, mission, audience,
+    # locations), the model id, which channels were requested, the tool + mode.
+    # Set at creation so even a failed/pending attempt has a full details page.
+    request_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     organization = relationship("Organization", back_populates="analytics_snapshots")
@@ -221,3 +237,39 @@ class PublicationSnapshot(Base):
     scanned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     publication = relationship("Publication", back_populates="snapshots")
+
+
+class EngagementCycleRun(Base):
+    """Log of one full, autonomous "engagement cycle" run for one
+    organization (services/engagement_cycle.py) - the seven-stage
+    ANALYSE -> PLAN -> COPY -> GENERATE -> APPROVE -> DISTRIBUTE -> MEASURE
+    orchestration that goes from the org's current analytics footprint to a
+    fresh set of distributed engagements and a re-measured org_score.
+
+    before/after/delta let "did this cycle actually move the needle" be a
+    stored, auditable fact instead of something recomputed differently each
+    time someone asks. status distinguishes a normal completed run from a
+    dry run (planned but never distributed) or a run that couldn't start at
+    all (no baseline analytics scan yet) or that had nothing to do.
+    """
+
+    __tablename__ = "engagement_cycle_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    before_org_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    after_org_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    delta: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # "simulate" (deterministic, offline projection) or "live" (best-effort
+    # real web-search re-measurement) - see services/cycle_measurement.py.
+    measure_mode: Mapped[str] = mapped_column(String(20), default="simulate")
+    # "completed" | "dry_run" | "blocked_no_baseline" | "no_action"
+    status: Mapped[str] = mapped_column(String(30), default="completed")
+    # list of {"stage": int, "name": str, "detail": str, "count": int}, one
+    # entry per stage actually executed, in order - an audit trail of what
+    # this run did without needing to re-derive it from side effects.
+    stages: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    engagement_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Publication.id list this run's DISTRIBUTE stage created, if any.
+    publication_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

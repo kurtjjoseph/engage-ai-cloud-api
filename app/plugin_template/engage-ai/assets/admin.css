@@ -195,3 +195,78 @@
     width: 100%;
     height: auto;
 }
+
+.engageai-stat-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1em;
+    margin: 1em 0 1.5em;
+}
+
+.engageai-stat-card {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 1em 1.25em;
+    min-width: 160px;
+}
+
+.engageai-stat-label {
+    margin: 0 0 0.25em;
+    color: #50575e;
+    font-size: 13px;
+}
+
+.engageai-stat-value {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 700;
+    color: #1d2327;
+}
+
+.engageai-stat-positive {
+    color: #1e5f2e;
+}
+
+.engageai-stat-negative {
+    color: #8a1f1f;
+}
+
+.engageai-cycle-distribution {
+    margin-bottom: 1.5em;
+}
+
+.engageai-cycle-status {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 3px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    background: #f0f0f1;
+    color: #1d2327;
+}
+
+.engageai-cycle-status-completed {
+    background: #edf7ed;
+    color: #1e5f2e;
+}
+
+.engageai-cycle-status-dry_run {
+    background: #eaf2fb;
+    color: #1a4d8f;
+}
+
+.engageai-cycle-status-blocked_no_baseline,
+.engageai-cycle-status-no_action {
+    background: #fcf9e8;
+    color: #7a6115;
+}
+
+.engageai-cycle-simulated {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: #7a6115;
+}

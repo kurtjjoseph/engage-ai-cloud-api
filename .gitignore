@@ -3,3 +3,6 @@
 __pycache__/
 *.pyc
 engage_ai.db
+
+# local junk (superseded work bundle)
+_to_delete/

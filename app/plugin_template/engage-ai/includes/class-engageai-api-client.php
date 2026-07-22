@@ -157,6 +157,17 @@ class EngageAI_Api_Client
     }
 
     /**
+     * One snapshot by id - powers the per-scan details view (all data used in
+     * the request: org context sent, pinned handles, model/tool, plus the raw
+     * KPIs, rule-by-rule scoring, sources and reconciliation flags per channel).
+     * @return array|WP_Error
+     */
+    public function get_analytics_snapshot(int $org_id, int $snapshot_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/analytics/snapshot/' . $snapshot_id);
+    }
+
+    /**
      * Org score, a channel ranking (best to worst) with white_space/new/
      * growing/saturated/healthy classification, and each channel's exact
      * score breakdown - built from the most recent full-sweep scans only.

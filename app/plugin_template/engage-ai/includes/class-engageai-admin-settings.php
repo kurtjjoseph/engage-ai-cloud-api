@@ -33,6 +33,7 @@ class EngageAI_Admin_Settings
         return [
             'engagement' => __('Church Engagement Content (events, announcements, sermons)', 'engage-ai'),
             'analytics' => __('Analytics (web-search digital footprint scans)', 'engage-ai'),
+            'engagement_cycle' => __('Engagement Cycle (autonomous analyse → plan → distribute → measure)', 'engage-ai'),
             'agent:physical_product' => __('Physical Product Business', 'engage-ai'),
             'agent:reselling' => __('Reselling & Thrift Flipping', 'engage-ai'),
             'agent:youtube_channel' => __('YouTube Channel Growth', 'engage-ai'),

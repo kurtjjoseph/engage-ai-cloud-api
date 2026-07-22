@@ -42,6 +42,7 @@ class OrganizationOut(OrganizationCreate):
     id: int
     enabled_modules: list[str] | None = None
     agent_profiles: dict | None = None
+    created_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -144,6 +145,15 @@ class AnalyticsSnapshotOut(BaseModel):
     # "pending" while the scan runs in the background, "failed" if it raised,
     # null/"complete" once real data is written - see AnalyticsSnapshot.status.
     status: str | None
+    # True when reconciliation held a channel forward or flagged a swing - a
+    # human should eyeball before this snapshot is trusted/sent (see
+    # AnalyticsSnapshot.needs_review). Null on old rows = no review needed.
+    needs_review: bool | None = None
+    # Wall-clock seconds the scan took (operator dashboard's measurement time).
+    duration_seconds: float | None = None
+    # All data that went into this scan's request (org context sent to the model,
+    # pinned channel handles, model id, channels, tool) - for the scan-details page.
+    request_context: dict | None = None
     created_at: datetime
 
     class Config:
@@ -157,6 +167,14 @@ class ChannelRankingEntry(BaseModel):
     classification: str  # white_space | new | growing | saturated | healthy
     score_breakdown: list[dict]
     notes: str | None = None
+    # Reliability flags (services/analytics_reconcile.py): stale = value carried
+    # forward because the web search didn't re-find the channel this run;
+    # last_measured_at = when it was really last measured; needs_review +
+    # review_reason = why a human should verify this channel.
+    stale: bool | None = None
+    last_measured_at: datetime | None = None
+    needs_review: bool | None = None
+    review_reason: str | None = None
 
 
 class AnalyticsInsightsOut(BaseModel):
@@ -167,6 +185,9 @@ class AnalyticsInsightsOut(BaseModel):
     baseline_org_score: int | None
     ranking: list[ChannelRankingEntry]
     summary: str | None
+    # Roll-up: true if the latest sweep or any channel needs a human check
+    # before this report is trusted/sent unattended.
+    needs_review: bool | None = None
 
 
 class PublicationCreate(BaseModel):
@@ -212,3 +233,30 @@ class EngagementTypeRankingEntry(BaseModel):
     avg_score: float
     publication_count: int
     scanned_publication_count: int
+
+
+class RunCycleRequest(BaseModel):
+    # "simulate" (deterministic offline projection) or "live" (best-effort
+    # real re-measurement) - None defers to settings.cycle_measure_mode.
+    measure_mode: str | None = None
+    # True plans and generates copy but never distributes or re-measures.
+    dry_run: bool = False
+    # None defers to settings.cycle_auto_approve.
+    auto_approve: bool | None = None
+
+
+class EngagementCycleRunOut(BaseModel):
+    id: int
+    organization_id: int
+    before_org_score: int | None
+    after_org_score: int | None
+    delta: int | None
+    measure_mode: str
+    status: str
+    stages: list[dict] | None
+    engagement_count: int
+    publication_ids: list[int] | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
