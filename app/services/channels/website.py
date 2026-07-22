@@ -20,6 +20,10 @@ class WebsiteAdapter(ChannelAdapter):
     """Publishes an engagement to the org's website as a WordPress draft."""
 
     channel = "website"
+    # No real WordPress API call happens here (see module docstring) - the draft
+    # URL is constructed, nothing is actually posted - so this is reported as
+    # simulated too, until a real WP-API-backed adapter is registered.
+    simulated = True
 
     def distribute(self, db: Session, org: Organization, engagement: dict) -> Publication:
         base = (org.website_url or DEFAULT_WEBSITE_BASE).rstrip("/")

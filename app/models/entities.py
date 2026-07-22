@@ -211,6 +211,10 @@ class Publication(Base):
     channel: Mapped[str] = mapped_column(String(100), index=True)
     url: Mapped[str] = mapped_column(String(1000))
     label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # True when this was recorded by a SIMULATED distribution adapter (no real
+    # post actually went out - see services/channels). The API surfaces this so
+    # a simulated/draft publication is never mistaken for a real live post.
+    simulated: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -272,4 +276,10 @@ class EngagementCycleRun(Base):
     engagement_count: Mapped[int] = mapped_column(Integer, default=0)
     # Publication.id list this run's DISTRIBUTE stage created, if any.
     publication_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Honest self-report of what in this run is stubbed/simulated vs real, so no
+    # consumer mistakes a preview for real work. Shape:
+    # {"is_simulated": bool, "content": "placeholder_templated"|"ai_generated",
+    #  "distribution": "simulated"|"real"|"mixed"|"none",
+    #  "measurement": "simulated_projection"|"live", "notes": str}
+    simulation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

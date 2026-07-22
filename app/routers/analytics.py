@@ -46,7 +46,11 @@ def build_request_context(org: Organization, requested_channels: list[str] | Non
     the per-scan details page - so an operator can see exactly what data the
     model was given (org context + pinned channel handles), which channels were
     asked for, and the model/tool used."""
-    return {
+    # If no Anthropic key is configured, the scan can't actually research
+    # anything - it returns empty/stub data. Declare that here so no consumer
+    # mistakes a keyless stub run for a real measurement.
+    stubbed = search_service.client is None
+    ctx = {
         "org_context": _org_context(org),
         "model": settings.anthropic_model,
         "requested_channels": requested_channels,  # None = full 8-channel sweep
@@ -54,7 +58,11 @@ def build_request_context(org: Organization, requested_channels: list[str] | Non
         "include_pages": include_pages,
         "tool": "web_search_20250305",
         "mode": "per-channel parallel web search",
+        "stubbed": stubbed,
     }
+    if stubbed:
+        ctx["stub_reason"] = "ANTHROPIC_API_KEY not configured - no real web research was performed"
+    return ctx
 
 
 def _scored_not_found(channel: str) -> dict:

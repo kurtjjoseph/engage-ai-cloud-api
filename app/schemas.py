@@ -201,6 +201,9 @@ class PublicationCreate(BaseModel):
 class PublicationOut(PublicationCreate):
     id: int
     organization_id: int
+    # True if recorded by a simulated distribution adapter (no real post went
+    # out). Null on manually-registered publications and old rows.
+    simulated: bool | None = None
     created_at: datetime
 
     class Config:
@@ -256,6 +259,10 @@ class EngagementCycleRunOut(BaseModel):
     stages: list[dict] | None
     engagement_count: int
     publication_ids: list[int] | None
+    # Honest self-report of what in this run is stubbed/simulated vs real (see
+    # EngagementCycleRun.simulation) - so a preview cycle is never read as real
+    # posting or a real measured score.
+    simulation: dict | None = None
     created_at: datetime
 
     class Config:

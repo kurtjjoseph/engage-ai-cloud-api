@@ -434,6 +434,7 @@
         +'<tr><td class="k">tool</td><td class="v">'+esc(rc.tool||"—")+'</td></tr>'
         +'<tr><td class="k">mode</td><td class="v">'+esc(rc.mode||"—")+'</td></tr>'
         +'<tr><td class="k">include pages</td><td class="v">'+(rc.include_pages?"yes":"no")+'</td></tr>'
+        +'<tr><td class="k">stubbed</td><td class="v"'+(rc.stubbed?' style="color:var(--warn)"':'')+'>'+(rc.stubbed?('YES — '+esc(rc.stub_reason||"no real research performed")):"no (real web research)")+'</td></tr>'
       +'</tbody></table></div>';
 
     var chans=(s.channels||[]).map(function(c){

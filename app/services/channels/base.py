@@ -56,6 +56,11 @@ class ChannelAdapter(ABC):
     """
 
     channel: str
+    # Whether this adapter actually delivers to the real channel, or only
+    # records where it *would* have gone (no real API call). The API reports
+    # this on every Publication (Publication.simulated) so nothing simulated is
+    # ever mistaken for a real, live post. Real API-backed adapters set False.
+    simulated: bool = False
 
     @abstractmethod
     def distribute(self, db: Session, org: Organization, engagement: dict) -> Publication:
@@ -77,6 +82,7 @@ class ChannelAdapter(ABC):
             channel=self.channel,
             url=url,
             label=label,
+            simulated=self.simulated,
             published_at=datetime.utcnow(),
         )
         db.add(publication)

@@ -589,6 +589,7 @@ class EngageAI_Admin_Analytics
             'tool' => $rc['tool'] ?? '-',
             'mode' => $rc['mode'] ?? '-',
             'include pages' => !empty($rc['include_pages']) ? 'yes' : 'no',
+            'stubbed' => !empty($rc['stubbed']) ? ('YES - ' . ($rc['stub_reason'] ?? 'no real research performed')) : 'no (real web research)',
         ]);
         ?>
         </tbody></table>

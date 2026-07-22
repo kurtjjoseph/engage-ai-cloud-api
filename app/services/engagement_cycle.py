@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.entities import EngagementCycleRun, Organization, Publication
 from app.services.analytics_insights import compute_insights
-from app.services.channels import DISTRIBUTABLE_CHANNELS, distribute_engagement
+from app.services.channels import DISTRIBUTABLE_CHANNELS, get_adapter
 from app.services.cycle_measurement import measure_and_rescore
 
 ENGAGEMENT_TYPES = ("website_post", "social_post", "channel_setup")
@@ -33,6 +33,35 @@ ENGAGEMENT_TYPES = ("website_post", "social_post", "channel_setup")
 # Cap on how many engagements one cycle plans/distributes - keeps a single
 # run bounded and reviewable instead of blasting every channel at once.
 MAX_ENGAGEMENTS_PER_CYCLE = 3
+
+
+def _simulation_report(measure_mode: str, distribution: str, content: str = "placeholder_templated") -> dict:
+    """Honest self-report of what in this run is stubbed vs real, attached to
+    every EngagementCycleRun so no consumer mistakes a preview for real work.
+    - content: "placeholder_templated" (the current default - AI copy isn't
+      wired) or "ai_generated".
+    - distribution: "simulated" (nothing actually posted), "real", "mixed", or
+      "none" (nothing distributed this run).
+    - measurement: "simulated_projection" (a deterministic guess) or "live".
+    """
+    measurement = "live" if measure_mode == "live" else "simulated_projection"
+    is_simulated = (content != "ai_generated") or (distribution in ("simulated", "mixed")) or (measurement != "live")
+    notes: list[str] = []
+    if content != "ai_generated":
+        notes.append("copy is templated placeholder, not human- or AI-written")
+    if distribution == "simulated":
+        notes.append("distribution was simulated - nothing was actually posted (drafts/records only)")
+    elif distribution == "mixed":
+        notes.append("some channels were simulated - not every post actually went out")
+    if measurement != "live":
+        notes.append("the score change is a deterministic projection, not a re-measured result")
+    return {
+        "is_simulated": is_simulated,
+        "content": content,
+        "distribution": distribution,
+        "measurement": measurement,
+        "notes": "; ".join(notes) if notes else "all stages ran against real integrations",
+    }
 
 
 def _stage(stages: list[dict], number: int, name: str, detail: str, count: int = 0) -> None:
@@ -236,6 +265,7 @@ def run_full_cycle(
             stages=stages,
             engagement_count=0,
             publication_ids=[],
+            simulation=_simulation_report(measure_mode, "none"),
         )
         db.add(run)
         db.commit()
@@ -260,6 +290,7 @@ def run_full_cycle(
             stages=stages,
             engagement_count=0,
             publication_ids=[],
+            simulation=_simulation_report(measure_mode, "none"),
         )
         db.add(run)
         db.commit()
@@ -296,6 +327,7 @@ def run_full_cycle(
             stages=stages,
             engagement_count=0,
             publication_ids=[],
+            simulation=_simulation_report(measure_mode, "none"),
         )
         db.add(run)
         db.commit()
@@ -304,11 +336,23 @@ def run_full_cycle(
 
     publications: list[Publication] = []
     distributed_engagements: list[dict] = []
+    sim_flags: list[bool] = []
     for engagement in approved:
-        publication = distribute_engagement(db, org, engagement)
+        adapter = get_adapter(engagement["channel"])
+        sim_flags.append(bool(getattr(adapter, "simulated", False)))
+        publication = adapter.distribute(db, org, engagement)
         publications.append(publication)
         distributed_engagements.append(engagement)
-    _stage(stages, 6, "DISTRIBUTE", f"Distributed {len(publications)} engagement(s) via channel adapters.", len(publications))
+    if not sim_flags:
+        distribution = "none"
+    elif all(sim_flags):
+        distribution = "simulated"
+    elif not any(sim_flags):
+        distribution = "real"
+    else:
+        distribution = "mixed"
+    sim = _simulation_report(measure_mode, distribution)
+    _stage(stages, 6, "DISTRIBUTE", f"Distributed {len(publications)} engagement(s) via channel adapters ({distribution}).", len(publications))
 
     # --- 7. MEASURE ---
     result = measure_and_rescore(db, org, publications, distributed_engagements, mode=measure_mode)
@@ -326,6 +370,7 @@ def run_full_cycle(
         stages=stages,
         engagement_count=len(publications),
         publication_ids=[p.id for p in publications],
+        simulation=sim,
     )
     db.add(run)
     db.commit()
