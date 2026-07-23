@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, JSON
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 
@@ -113,6 +113,24 @@ class ContentItem(Base):
 
     organization = relationship("Organization", back_populates="content_items")
     publications = relationship("Publication", back_populates="content_item")
+
+
+class MediaAsset(Base):
+    """A generated media file (currently images from gpt-image-1) attached to a
+    piece of content. Bytes are stored inline and served by GET
+    /content/asset/{id}. Kept small/on-demand - only generated when the operator
+    asks, and only when an image provider key is configured."""
+
+    __tablename__ = "media_assets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    content_item_id: Mapped[int | None] = mapped_column(ForeignKey("content_items.id"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="image")  # image | video
+    mime: Mapped[str] = mapped_column(String(100), default="image/png")
+    prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class Ticket(Base):

@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.18.0
+Stable tag: 0.19.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -29,6 +29,9 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 6. Go to Engage AI > Generate Content for the church-engagement generators, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.19.0 =
+* New content campaign workflow: enter one topic, pick your channels, and the content-design agent drafts a coordinated post for each - with the copy and the media each channel needs. Image posts (Instagram, Facebook, LinkedIn, website featured image, Google Business) get an AI-generated image saved straight to your Media Library; video channels (YouTube, Reels) get a full storyboard (script, scene-by-scene captions and image prompts, and a thumbnail prompt). Image generation uses OpenAI - add an OpenAI API key to switch it on; until then every post still comes with a ready-to-use image prompt and alt text.
 
 = 0.18.0 =
 * The Content generator can now draft for any channel, not just your website. Pick a channel (Google Business, YouTube, Facebook, Instagram, LinkedIn, X, news) and one of five content types designed to raise that channel's engagement score - e.g. an Instagram educational carousel, a YouTube Short script, a Google review-request message, a LinkedIn insight post, or a press release. Each draft is saved with a copy-ready body (and hashtags where relevant); website drafts still become WordPress drafts in one click.

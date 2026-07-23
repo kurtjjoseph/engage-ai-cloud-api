@@ -174,6 +174,33 @@ def _content_type_entry(channel: str, content_type_key: str) -> dict | None:
     return None
 
 
+# Which media each content type needs, so the workflow generates an image
+# prompt for image posts and a full video storyboard for video posts. Anything
+# not listed is text-only.
+_MEDIA_BY_TYPE: dict[str, str] = {
+    # image
+    "blog_post": "image", "pillar_page": "image", "case_study": "image", "resource_guide": "image",
+    "gbp_offer": "image", "gbp_event": "image", "gbp_update": "image",
+    "fb_event": "image", "fb_story": "image", "fb_tip": "image", "fb_bts": "image",
+    "ig_carousel": "image", "ig_photo": "image", "ig_story": "image", "ig_quote": "image",
+    "li_article": "image", "li_milestone": "image", "li_case": "image",
+    # video
+    "short_script": "video", "howto_script": "video", "story_script": "video",
+    "bts_script": "video", "announce_script": "video", "ig_reel": "video",
+}
+
+
+def media_for(content_type_key: str) -> str:
+    return _MEDIA_BY_TYPE.get(content_type_key, "text")
+
+
+def default_type_for(channel: str) -> dict | None:
+    """The primary content type to use when the workflow only knows the channel
+    (the operator picked a channel, not a specific type)."""
+    types = CHANNEL_CONTENT_TYPES.get(channel)
+    return types[0] if types else None
+
+
 class ContentIdeaService:
     def __init__(self) -> None:
         self.client = Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else None
@@ -270,3 +297,94 @@ Include "hashtags" only where the format above asks for them; otherwise use an e
             out.append({"title": title, "body": body, "hashtags": hashtags[:12],
                         "label": entry["label"], "angle": f"Raises {entry['raises']}"})
         return out
+
+    def generate_pack(self, org_context: dict, site_type: str | None, topic: str | None,
+                      selections: list[tuple[str, str]]) -> dict:
+        """The content-design agent: from ONE topic, produce a coordinated piece
+        for each selected (channel, content_type), each with the media it needs -
+        an image prompt + alt for image posts, a full video storyboard for video
+        posts. One Claude call keeps the whole pack on-message. Returns
+        {"topic": str, "pieces": [ {channel, content_type, media, title, body,
+        hashtags, image_prompt, image_alt, video_plan} ]}. Empty pieces on no key."""
+        if not self.client or not selections:
+            return {"topic": topic or "", "pieces": []}
+
+        specs = []
+        for channel, type_key in selections:
+            entry = _content_type_entry(channel, type_key)
+            if entry is None:
+                continue
+            media = media_for(type_key)
+            fmt = _CHANNEL_FORMAT.get(channel, _CHANNEL_FORMAT["facebook"])
+            media_note = {
+                "image": "This post needs an image: include image_prompt (a vivid, specific prompt for an image generator) and image_alt (concise alt text).",
+                "video": "This is a video: 'body' is the on-screen/spoken script (HOOK/BODY/CTA); also include video_plan with scenes (each {caption, image_prompt}), a voiceover string, and a thumbnail_prompt.",
+                "text": "Text only - no image_prompt or video_plan needed.",
+            }[media]
+            specs.append(f"- {channel} / {entry['label']} (raises {entry['raises']}, media: {media}). {fmt} {media_note}")
+
+        if not specs:
+            return {"topic": topic or "", "pieces": []}
+
+        topic_line = (f"Topic: {topic.strip()}." if topic and topic.strip()
+                      else "Choose ONE high-impact topic for this organization and use it across all channels.")
+        system = f"""You are Engage AI's content-design agent. Produce a coordinated multi-channel content pack: ONE topic, adapted to each channel below, each ready to use and on-brand.
+{guidance_for(site_type)}
+{topic_line}
+
+Create exactly one piece per line below, in order:
+{chr(10).join(specs)}
+
+Use the organization's real context (name, mission, tone, audience, locations). Website 'body' is safe HTML; all others are plain text. Provide image_prompt/image_alt only for image posts, and video_plan only for videos.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{{"topic": "string",
+  "pieces": [
+    {{"channel": "string", "content_type": "string", "title": "string", "body": "string",
+      "hashtags": ["string"], "image_prompt": "string", "image_alt": "string",
+      "video_plan": {{"scenes": [{{"caption": "string", "image_prompt": "string"}}], "voiceover": "string", "thumbnail_prompt": "string"}}}}
+  ]}}
+Use "" or [] or {{}} for fields a given piece doesn't need."""
+
+        user = {"organization": org_context, "topic": topic or None,
+                "selections": [{"channel": c, "content_type": t} for c, t in selections]}
+        response = self.client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=8192,
+            system=system,
+            messages=[{"role": "user", "content": json.dumps(user)}],
+        )
+        text = "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
+        try:
+            data = extract_json(text)
+        except (json.JSONDecodeError, ValueError):
+            return {"topic": topic or "", "pieces": []}
+
+        by_key = {(c, t): _content_type_entry(c, t) for c, t in selections}
+        pieces = []
+        for raw in (data.get("pieces") if isinstance(data, dict) else None) or []:
+            if not isinstance(raw, dict):
+                continue
+            channel = str(raw.get("channel") or "").strip()
+            type_key = str(raw.get("content_type") or "").strip()
+            entry = by_key.get((channel, type_key)) or _content_type_entry(channel, type_key)
+            title = str(raw.get("title") or "").strip()
+            body = str(raw.get("body") or "").strip()
+            if not entry or not title or not body:
+                continue
+            media = media_for(type_key)
+            hashtags = [str(h).lstrip("#").strip() for h in (raw.get("hashtags") or []) if str(h).strip()]
+            pieces.append({
+                "channel": channel,
+                "content_type": type_key,
+                "content_type_label": entry["label"],
+                "media": media,
+                "title": title,
+                "body": body,
+                "hashtags": hashtags[:12],
+                "image_prompt": str(raw.get("image_prompt") or "").strip() if media == "image" else "",
+                "image_alt": str(raw.get("image_alt") or "").strip() if media == "image" else "",
+                "video_plan": raw.get("video_plan") if media == "video" and isinstance(raw.get("video_plan"), dict) else None,
+                "angle": f"Raises {entry['raises']}",
+            })
+        return {"topic": str(data.get("topic") or topic or "").strip(), "pieces": pieces}

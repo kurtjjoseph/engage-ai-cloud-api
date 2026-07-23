@@ -183,6 +183,107 @@ def test_suggest_invalid_content_type_returns_503(client, db_session):
     assert resp.status_code == 503
 
 
+class _FakeImageGen:
+    def __init__(self, enabled, result=None):
+        self._enabled = enabled
+        self._result = result
+
+    @property
+    def enabled(self):
+        return self._enabled
+
+    def generate_image(self, prompt, size="1024x1024"):
+        return self._result
+
+
+def test_media_for_maps_types_to_media():
+    from app.services.content_ideas import media_for
+    assert media_for("ig_reel") == "video"
+    assert media_for("short_script") == "video"
+    assert media_for("blog_post") == "image"
+    assert media_for("ig_carousel") == "image"
+    assert media_for("x_thread") == "text"
+    assert media_for("review_request") == "text"
+
+
+def test_pack_saves_a_piece_per_channel(client, db_session, monkeypatch):
+    user, org = _seed(db_session, site_type="church")
+    client._holder["user"] = user
+
+    def fake_pack(org_context, site_type, topic, selections):
+        return {"topic": "Our new service", "pieces": [
+            {"channel": "website", "content_type": "blog_post", "content_type_label": "Blog article",
+             "media": "image", "title": "Web Post", "body": "<p>hi</p>", "hashtags": [],
+             "image_prompt": "a church laptop", "image_alt": "laptop", "video_plan": None, "angle": "Raises freshness"},
+            {"channel": "instagram", "content_type": "ig_carousel", "content_type_label": "Educational carousel",
+             "media": "image", "title": "IG", "body": "caption", "hashtags": ["faith"],
+             "image_prompt": "a bright carousel", "image_alt": "carousel", "video_plan": None, "angle": "Raises engagement"},
+        ]}
+
+    monkeypatch.setattr(content_router.content_ideas, "generate_pack", fake_pack)
+    resp = client.post(f"/content/pack?organization_id={org.id}", json={"topic": "Our new service", "channels": ["website", "instagram"]})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 2
+    web = next(p for p in body if p["content_type"] == "website")
+    assert web["output_payload"]["website_post"]["body_html"] == "<p>hi</p>"  # website stays publishable
+    ig = next(p for p in body if p["content_type"] == "instagram")
+    assert ig["output_payload"]["media"] == "image"
+    assert ig["output_payload"]["image_prompt"] == "a bright carousel"
+
+
+def test_generate_image_503_without_provider(client, db_session, monkeypatch):
+    user, org = _seed(db_session, site_type="business")
+    client._holder["user"] = user
+    item = ContentItem(organization_id=org.id, content_type="instagram", title="X",
+                       input_payload={}, output_payload={"image_prompt": "a photo", "media": "image"})
+    db_session.add(item)
+    db_session.commit()
+    db_session.refresh(item)
+    monkeypatch.setattr(content_router, "image_gen", _FakeImageGen(enabled=False))
+    resp = client.post(f"/content/{item.id}/image?organization_id={org.id}")
+    assert resp.status_code == 503
+
+
+def test_generate_image_stores_and_serves_asset(client, db_session, monkeypatch):
+    user, org = _seed(db_session, site_type="business")
+    client._holder["user"] = user
+    item = ContentItem(organization_id=org.id, content_type="instagram", title="X",
+                       input_payload={}, output_payload={"image_prompt": "a photo", "media": "image"})
+    db_session.add(item)
+    db_session.commit()
+    db_session.refresh(item)
+    png = b"\x89PNG\r\n\x1a\nFAKE"
+    monkeypatch.setattr(content_router, "image_gen", _FakeImageGen(enabled=True, result=(png, "image/png")))
+
+    resp = client.post(f"/content/{item.id}/image?organization_id={org.id}")
+    assert resp.status_code == 200
+    asset_id = resp.json()["asset_id"]
+
+    # linked back on the item, and the bytes serve
+    db_session.refresh(item)
+    assert item.output_payload["image_asset_id"] == asset_id
+    served = client.get(f"/content/asset/{asset_id}")
+    assert served.status_code == 200
+    assert served.content == png
+    assert served.headers["content-type"].startswith("image/png")
+
+
+def test_asset_404_for_unowned(client, db_session):
+    from app.models.entities import MediaAsset
+    owner, org = _seed(db_session, site_type="business")
+    asset = MediaAsset(organization_id=org.id, kind="image", mime="image/png", data=b"x")
+    db_session.add(asset)
+    db_session.commit()
+    db_session.refresh(asset)
+    intruder = User(email=f"intruder2-{next(_email_counter)}@example.com", hashed_password="x")
+    db_session.add(intruder)
+    db_session.commit()
+    db_session.refresh(intruder)
+    client._holder["user"] = intruder
+    assert client.get(f"/content/asset/{asset.id}").status_code == 404
+
+
 def test_suggest_404_for_unowned_org(client, db_session, monkeypatch):
     _owner, org = _seed(db_session, site_type="business")
     intruder = User(email=f"intruder-{next(_email_counter)}@example.com", hashed_password="x")

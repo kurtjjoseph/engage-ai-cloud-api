@@ -179,6 +179,60 @@ class EngageAI_Api_Client
     }
 
     /**
+     * The content-design agent: one topic turned into a coordinated post for
+     * each channel, with the media each needs (image prompt / video storyboard).
+     * @param string[] $channels channel keys to include
+     * @return array|WP_Error list of the saved ContentItems
+     */
+    public function generate_pack(int $org_id, string $topic, array $channels)
+    {
+        return $this->request('POST', '/content/pack?organization_id=' . $org_id, [
+            'topic' => $topic !== '' ? $topic : null,
+            'channels' => array_values($channels),
+        ], true, 120);
+    }
+
+    /**
+     * Generates the image for one content piece from its stored prompt.
+     * @return array|WP_Error {asset_id, url, mime}
+     */
+    public function generate_content_image(int $org_id, int $content_id)
+    {
+        return $this->request('POST', '/content/' . $content_id . '/image?organization_id=' . $org_id, null, true, 120);
+    }
+
+    /**
+     * Fetches a generated media asset's raw bytes (for saving into the WP media
+     * library). Bypasses the JSON decode in request().
+     * @return array|WP_Error ['body' => string bytes, 'mime' => string]
+     */
+    public function get_asset_bytes(int $asset_id)
+    {
+        $base_url = $this->get_base_url();
+        if ($base_url === '') {
+            return new WP_Error('engageai_not_configured', __('Engage AI API URL is not configured yet.', 'engage-ai'));
+        }
+        $token = get_option(self::OPT_TOKEN, '');
+        if ($token === '') {
+            return new WP_Error('engageai_not_connected', __('Not connected to Engage AI.', 'engage-ai'));
+        }
+        $response = wp_remote_get($base_url . '/content/asset/' . $asset_id, [
+            'headers' => ['Authorization' => 'Bearer ' . $token],
+            'timeout' => 45,
+        ]);
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        if (wp_remote_retrieve_response_code($response) >= 400) {
+            return new WP_Error('engageai_asset_error', __('Could not fetch the generated image.', 'engage-ai'));
+        }
+        return [
+            'body' => wp_remote_retrieve_body($response),
+            'mime' => wp_remote_retrieve_header($response, 'content-type') ?: 'image/png',
+        ];
+    }
+
+    /**
      * Asks the API to draft content and saves it as tracked content. With
      * $channel + $content_type set, drafts that content type for that channel
      * (shaped to raise its engagement score); otherwise drafts website posts

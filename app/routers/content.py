@@ -1,15 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.deps import get_current_user
-from app.models.entities import ContentItem, User
+from app.models.entities import ContentItem, MediaAsset, User
 from app.routers.organizations import get_owned_org
 from app.schemas import ContentOut
-from app.services.content_ideas import ContentIdeaService, DEFAULT_SITE_TYPE, content_types_catalog
+from app.services.content_ideas import (
+    CHANNEL_CONTENT_TYPES,
+    ContentIdeaService,
+    DEFAULT_SITE_TYPE,
+    content_types_catalog,
+    default_type_for,
+)
+from app.services.media_gen import ImageGenService
 
 router = APIRouter(prefix="/content", tags=["content"])
 
 content_ideas = ContentIdeaService()
+image_gen = ImageGenService()
+
+
+class PackRequest(BaseModel):
+    topic: str | None = None
+    channels: list[str] | None = None
 
 
 def _org_content_context(org) -> dict:
@@ -119,3 +134,98 @@ def suggest_content(
     for item in saved:
         db.refresh(item)
     return saved
+
+
+@router.post("/pack", response_model=list[ContentOut])
+def generate_pack(
+    organization_id: int,
+    payload: PackRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The content-design agent: one topic turned into a coordinated post for
+    each chosen channel, each with the media it needs - an image prompt + alt
+    for image posts, a full video storyboard for video posts. Saves each piece
+    as a tracked ContentItem; the plugin then generates the image (POST
+    /content/{id}/image) and renders/publishes per channel."""
+    org = get_owned_org(organization_id, db, user)
+    site_type = (org.site_facts or {}).get("site_type") or DEFAULT_SITE_TYPE
+
+    channels = [c for c in (payload.channels or ["website", "instagram", "facebook"]) if c in CHANNEL_CONTENT_TYPES][:6]
+    selections: list[tuple[str, str]] = []
+    for channel in channels:
+        default = default_type_for(channel)
+        if default:
+            selections.append((channel, default["key"]))
+    if not selections:
+        raise HTTPException(status_code=400, detail="No valid channels selected.")
+
+    pack = content_ideas.generate_pack(_org_content_context(org), site_type, payload.topic, selections)
+    pieces = pack.get("pieces") or []
+    if not pieces:
+        raise HTTPException(status_code=503, detail="No content could be generated (is ANTHROPIC_API_KEY configured?). Try again.")
+
+    saved: list[ContentItem] = []
+    for piece in pieces:
+        output = {**piece, "topic": pack.get("topic", "")}
+        if piece["channel"] == "website":
+            output["website_post"] = {"title": piece["title"], "body_html": piece["body"]}
+        item = ContentItem(
+            organization_id=org.id,
+            content_type=piece["channel"],
+            title=piece["title"],
+            input_payload={"source": "campaign", "topic": pack.get("topic", ""),
+                           "channel": piece["channel"], "content_type": piece["content_type"], "site_type": site_type},
+            output_payload=output,
+        )
+        db.add(item)
+        saved.append(item)
+    db.commit()
+    for item in saved:
+        db.refresh(item)
+    return saved
+
+
+@router.post("/{content_id}/image")
+def generate_content_image(
+    content_id: int,
+    organization_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Generates the image for a content piece from its stored image_prompt (via
+    gpt-image-1), stores it, and links it back to the item. 503 if no image
+    provider key is configured yet - the prompt + alt are always available to
+    paste into any tool in the meantime."""
+    org = get_owned_org(organization_id, db, user)
+    item = db.query(ContentItem).filter(ContentItem.id == content_id, ContentItem.organization_id == org.id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Content not found.")
+    prompt = (item.output_payload or {}).get("image_prompt")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="This content has no image to generate.")
+    if not image_gen.enabled:
+        raise HTTPException(status_code=503, detail="Image generation isn't configured yet - set OPENAI_API_KEY. Use the image prompt below in any image tool for now.")
+    result = image_gen.generate_image(prompt)
+    if not result:
+        raise HTTPException(status_code=502, detail="Image generation failed - try again.")
+    data, mime = result
+    asset = MediaAsset(organization_id=org.id, content_item_id=item.id, kind="image", mime=mime, prompt=prompt, data=data)
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+    output = dict(item.output_payload or {})
+    output["image_asset_id"] = asset.id
+    item.output_payload = output
+    db.commit()
+    return {"asset_id": asset.id, "url": f"/content/asset/{asset.id}", "mime": mime}
+
+
+@router.get("/asset/{asset_id}")
+def get_asset(asset_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Serves a generated media file's bytes (owner-scoped)."""
+    asset = db.query(MediaAsset).filter(MediaAsset.id == asset_id).first()
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    get_owned_org(asset.organization_id, db, user)  # 404s if not the caller's org
+    return Response(content=asset.data, media_type=asset.mime)
