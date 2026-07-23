@@ -165,6 +165,38 @@ def test_website_ground_truth_noop_when_site_unreachable(monkeypatch):
     assert an._apply_website_ground_truth(entry, None, "https://dead.example/") is entry
 
 
+def test_confirmed_handle_credits_channel_presence():
+    """A channel the operator confirmed a handle for scores its presence even
+    when the model couldn't verify it (found=false -> found=true)."""
+    from app.routers.analytics import _apply_confirmed_presence
+
+    details = {"facebook": "https://facebook.com/visionoutreachmedia",
+               "youtube": "https://youtube.com/@vom"}
+
+    fb_none = score_channel("facebook", {"found": False})[0]
+    assert fb_none == 0
+    fb = _apply_confirmed_presence("facebook", {"channel": "facebook", "kpis": {"found": False}}, details)
+    assert fb["kpis"]["found"] is True
+    assert score_channel("facebook", fb["kpis"])[0] > 0
+
+    # builds an entry even when the model returned nothing
+    yt = _apply_confirmed_presence("youtube", None, details)
+    assert yt["channel"] == "youtube" and yt["kpis"]["found"] is True
+    assert score_channel("youtube", yt["kpis"])[0] > 0
+
+
+def test_confirmed_presence_noop_without_handle_or_for_news():
+    from app.routers.analytics import _apply_confirmed_presence
+
+    entry = {"channel": "instagram", "kpis": {"found": False}}
+    # no handle set for instagram
+    assert _apply_confirmed_presence("instagram", entry, {"facebook": "x"}) is entry
+    assert _apply_confirmed_presence("instagram", entry, None) is entry
+    # news_mentions is never operator-owned
+    news = {"channel": "news_mentions", "kpis": {"found": False}}
+    assert _apply_confirmed_presence("news_mentions", news, {"news_mentions": "x"}) is news
+
+
 def test_ssrf_guard_blocks_private_hosts():
     from app.routers.analytics import _is_public_host
     assert _is_public_host("127.0.0.1") is False

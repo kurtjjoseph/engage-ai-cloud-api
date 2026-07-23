@@ -168,6 +168,39 @@ def _apply_website_ground_truth(entry: dict | None, site_facts: dict | None, web
     }
 
 
+# Channels the operator can own and confirm a handle for (news_mentions is not
+# an owned channel - you don't have a "news handle" - so a confirmed-handle
+# override never applies to it). website has its own richer path above.
+_CONFIRMABLE_CHANNELS = {"google_business", "youtube", "facebook", "instagram", "linkedin", "twitter_x"}
+
+
+def _apply_confirmed_presence(channel: str, entry: dict | None, channel_details: dict | None) -> dict | None:
+    """If the operator has set a confirmed handle/URL for this channel
+    (channel_details), the channel exists - so credit its presence even when the
+    model's web_search/web_fetch couldn't retrieve its metrics. The scan prompt
+    already treats channel_details as ground truth; this makes the SCORE reflect
+    that instead of leaving a confirmed-but-unverifiable channel at 0. Depth
+    (followers/posts) stays whatever was actually found. No-op when there's no
+    confirmed handle. Returns an entry even if the model found nothing."""
+    if channel not in _CONFIRMABLE_CHANNELS:
+        return entry
+    handle = (channel_details or {}).get(channel)
+    if not handle or not str(handle).strip():
+        return entry
+    kpis = dict((entry or {}).get("kpis") or {})
+    if kpis.get("found"):
+        return entry  # model already confirmed it - nothing to add
+    kpis["found"] = True
+    note = "Presence confirmed by the operator-provided channel handle."
+    prior_note = (entry or {}).get("notes") or ""
+    return {
+        "channel": channel,
+        **(entry or {}),
+        "kpis": kpis,
+        "notes": (prior_note + " " + note).strip() if note not in prior_note else prior_note,
+    }
+
+
 def _scored_not_found(channel: str) -> dict:
     """A genuine not-found channel entry (score 0), used when a per-channel
     scan returns nothing or fails - reconciliation may still hold last-known
@@ -239,6 +272,8 @@ def _execute_scan(snapshot_id: int, org_context: dict, channels: list[str] | Non
                         entry, sources, errors = None, [], errors + 1
                     if channel == "website":
                         entry = _apply_website_ground_truth(entry, site_facts, org_context.get("website_url"))
+                    else:
+                        entry = _apply_confirmed_presence(channel, entry, org_context.get("channel_details"))
                     if entry is None:
                         scored = _scored_not_found(channel)
                     else:
