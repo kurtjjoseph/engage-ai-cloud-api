@@ -36,6 +36,7 @@
   .btn{background:var(--accent);color:var(--accent-ink);border:none;border-radius:8px;padding:10px 16px;font-weight:600;width:100%}
   .btn.ghost{background:none;border:1px solid var(--line);color:var(--ink);width:auto;padding:7px 13px;font-weight:500}
   .err{color:var(--bad);font-size:12.5px;margin-top:10px;min-height:16px}
+  .authlinks{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px}
 
   /* shell */
   header.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);
@@ -146,6 +147,12 @@
       <button class="btn" type="submit">Sign in</button>
       <div class="err" id="loginErr"></div>
     </form>
+    <div class="authlinks">
+      <a href="/onboarding" target="_blank" rel="noopener">Register an organization</a>
+      <a href="/plugin/download.zip">Download the WordPress plugin</a>
+      <a href="#" id="forgotLink">Forgot password?</a>
+    </div>
+    <div class="err" id="forgotMsg" style="color:var(--ink-soft)"></div>
   </div>
 </div>
 
@@ -155,6 +162,7 @@
     <span class="brand"><span class="dot"></span>Engage AI Control</span>
     <span class="live"><span class="pulse"></span><span id="liveLabel">live</span></span>
     <span class="spacer"></span>
+    <button class="btn ghost" id="addSiteBtn" type="button">+ Add site</button>
     <button class="btn ghost" id="refreshBtn" type="button">Refresh</button>
     <button class="btn ghost" id="logoutBtn" type="button">Sign out</button>
   </header>
@@ -202,6 +210,28 @@
   function logout(){ token=null; localStorage.removeItem(TOKEN_KEY); stopPolling(); el("app").classList.add("hide"); el("login").classList.remove("hide"); }
   el("logoutBtn").addEventListener("click",logout);
   el("refreshBtn").addEventListener("click",function(){ route(true); });
+  el("addSiteBtn").addEventListener("click",addSite);
+  el("forgotLink").addEventListener("click",function(e){
+    e.preventDefault();
+    // Interim: real self-serve reset is pending a delivery decision (the API
+    // has no email service yet). Point the user at the operator for now.
+    el("forgotMsg").textContent="Password reset isn't self-serve yet — ask your operator to reset it for you.";
+  });
+
+  function addSite(){
+    var name=(prompt("New site / organization name:")||"").trim();
+    if(!name) return;
+    var type=(prompt("Type — 'church' or 'business':","church")||"church").trim().toLowerCase();
+    api("/organizations",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name:name,org_type:(type==="business"?"business":"church")})})
+      .then(function(org){
+        // Enable analytics so the new site is immediately scannable.
+        return api("/organizations/"+org.id+"/modules",{method:"PATCH",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({enabled_modules:["analytics"]})}).then(function(){ return org; });
+      })
+      .then(function(org){ toast("Added \""+org.name+"\" (analytics on)"); location.hash="#/"; route(true); })
+      .catch(function(err){ toast(err.message); });
+  }
 
   function showApp(){ el("login").classList.add("hide"); el("app").classList.remove("hide"); route(true); }
 

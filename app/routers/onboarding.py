@@ -38,7 +38,7 @@ def render_form(error: str | None = None) -> str:
     <form method="post" action="/onboarding">
       <label for="business_name">Church / business / channel name</label>
       <input type="text" id="business_name" name="business_name" required>
-      <p class="hint">Ignored if you already have an account - your existing organization is used instead.</p>
+      <p class="hint">One account can run several sites - tick "additional site" below to add another under the same email.</p>
 
       <label for="org_type">Type</label>
       <select id="org_type" name="org_type">
@@ -53,7 +53,9 @@ def render_form(error: str | None = None) -> str:
       <input type="password" id="password" name="password" minlength="8" required>
       <p class="hint">At least 8 characters. Used to connect the plugin - never shown or emailed.</p>
 
-      <button type="submit">Create account &amp; download plugin</button>
+      <label style="font-weight:400;margin-top:16px;"><input type="checkbox" name="additional_site" value="1" style="width:auto;margin-right:8px;">Register this as an <strong>additional site</strong> on an existing account (same email &amp; password)</label>
+
+      <button type="submit">Create / add site &amp; download plugin</button>
     </form>
   </div>
 </body>
@@ -73,12 +75,14 @@ def signup_submit(
     org_type: str = Form("business"),
     email: EmailStr = Form(...),
     password: str = Form(...),
+    additional_site: str = Form(""),
     db: Session = Depends(get_db),
 ):
     if len(password) < 8:
         return HTMLResponse(render_form(error="Password must be at least 8 characters."), status_code=400)
 
     existing_user = db.query(User).filter(User.email == email).first()
+    want_new_site = bool(additional_site)
 
     if existing_user:
         # Already have an account (e.g. re-downloading after losing the zip,
@@ -90,13 +94,10 @@ def signup_submit(
                 status_code=400,
             )
         user = existing_user
-        org = (
-            db.query(Organization)
-            .filter(Organization.owner_id == user.id)
-            .order_by(Organization.id.desc())
-            .first()
-        )
-        if not org:
+        # Multi-tenant: "additional site" creates a NEW organization under the
+        # same account (one email -> many sites). Otherwise reuse the latest
+        # org (the re-download case), creating one only if the account has none.
+        if want_new_site:
             org = Organization(
                 owner_id=user.id,
                 name=business_name,
@@ -105,6 +106,22 @@ def signup_submit(
             db.add(org)
             db.commit()
             db.refresh(org)
+        else:
+            org = (
+                db.query(Organization)
+                .filter(Organization.owner_id == user.id)
+                .order_by(Organization.id.desc())
+                .first()
+            )
+            if not org:
+                org = Organization(
+                    owner_id=user.id,
+                    name=business_name,
+                    org_type="church" if org_type == "church" else "business",
+                )
+                db.add(org)
+                db.commit()
+                db.refresh(org)
     else:
         user = User(email=email, hashed_password=hash_password(password))
         db.add(user)
