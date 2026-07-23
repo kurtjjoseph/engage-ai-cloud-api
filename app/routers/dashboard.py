@@ -55,7 +55,7 @@ def overview(db: Session = Depends(get_db), user: User = Depends(get_current_use
     week_ago = now - timedelta(days=7)
 
     sites = []
-    scores, deltas, agent_total = [], [], 0
+    scores, deltas, agent_total, content_total = [], [], 0, 0
     for org in orgs:
         analytics_enabled = "analytics" in (org.enabled_modules or [])
         insights = compute_insights(db, org.id) if analytics_enabled else None
@@ -72,6 +72,10 @@ def overview(db: Session = Depends(get_db), user: User = Depends(get_current_use
         if delta is not None:
             deltas.append(delta)
 
+        availability = insights["availability"] if insights else None
+        content_pieces_total = insights["content_volume"]["total"] if insights else 0
+        content_total += content_pieces_total
+
         sites.append({
             "id": org.id,
             "name": org.name,
@@ -85,6 +89,9 @@ def overview(db: Session = Depends(get_db), user: User = Depends(get_current_use
             "baseline_org_score": baseline,
             "score_delta": delta,
             "channel_count_scored": sum(1 for r in insights["ranking"] if r["score"] > 0) if insights else 0,
+            "channels_total": availability["total"] if availability else 8,
+            "availability_score": availability["score"] if availability else None,
+            "content_pieces": content_pieces_total,
             "last_scan_at": latest.created_at.isoformat() if latest else None,
             "last_scan_duration_seconds": latest.duration_seconds if latest else None,
             "needs_review": bool(insights["needs_review"]) if insights else False,
@@ -114,6 +121,7 @@ def overview(db: Session = Depends(get_db), user: User = Depends(get_current_use
         "avg_measurement_seconds": round(sum(recent_durations) / len(recent_durations), 1) if recent_durations else None,
         "total_agents": agent_total,
         "sites_needing_review": sum(1 for s in sites if s["needs_review"]),
+        "total_content_pieces": content_total,
     }
 
     return {"generated_at": now.isoformat(), "totals": totals, "sites": sites, "logs": _recent_logs(db, orgs)}

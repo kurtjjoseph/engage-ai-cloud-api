@@ -265,9 +265,23 @@ class EngageAI_Admin_Analytics
                             </span>
                         <?php endif; ?>
                     </p>
+                    <?php if (!empty($insights['availability'])): ?>
+                        <p class="description">
+                            <?php
+                            printf(
+                                /* translators: 1: channels present, 2: total channels, 3: availability percentage, 4: total pieces of content published */
+                                esc_html__('%1$d of %2$d channels live (%3$d%% availability) · %4$d pieces of content published', 'engage-ai'),
+                                (int) ($insights['availability']['present'] ?? 0),
+                                (int) ($insights['availability']['total'] ?? 0),
+                                (int) ($insights['availability']['score'] ?? 0),
+                                (int) ($insights['content_volume']['total'] ?? 0)
+                            );
+                            ?>
+                        </p>
+                    <?php endif; ?>
                     <?php if (!empty($insights['org_score_breakdown'])): ?>
                         <details class="engageai-breakdown">
-                            <summary><?php esc_html_e('How the org score was built (average across every channel, including 0 for channels with no presence)', 'engage-ai'); ?></summary>
+                            <summary><?php esc_html_e('How the org score was built (breadth: how many channels are live, blended with depth: the average across every channel, 0 for no presence)', 'engage-ai'); ?></summary>
                             <table class="widefat striped">
                                 <thead><tr><th><?php esc_html_e('Channel', 'engage-ai'); ?></th><th><?php esc_html_e('Score', 'engage-ai'); ?></th></tr></thead>
                                 <tbody>

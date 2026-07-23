@@ -50,6 +50,7 @@ for _channel in _FOLLOWER_CHANNELS:
     CHANNEL_KPI_SCHEMA[_channel] = {
         "found": "bool",
         "follower_count": "int|null",
+        "post_count": "int|null (total posts/pieces of content published on this channel)",
         "posting_frequency": f"enum{FREQUENCY_LEVELS}",
         "engagement_level": f"enum{QUALITATIVE_LEVELS}",
     }
@@ -84,11 +85,19 @@ def score_channel(channel: str, kpis: dict) -> tuple[int, list[dict]]:
             return 0, breakdown
 
         followers = kpis.get("follower_count")
-        pts = _tier(followers, [(0, 0), (100, 10), (1000, 20), (10000, 30), (100000, 40)])
+        pts = _tier(followers, [(0, 0), (100, 7), (1000, 13), (10000, 20), (100000, 25)])
         add("follower_count tier", pts, followers)
 
+        # Number of pieces of content actually published on the channel - a
+        # channel with an audience but nothing posted isn't really working.
+        # The first tier starts at 1 so simply HAVING content counts, not just
+        # having a lot of it.
+        posts = kpis.get("post_count")
+        pts = _tier(posts, [(0, 0), (1, 4), (5, 8), (25, 15), (100, 20)])
+        add("post_count tier", pts, posts)
+
         freq = kpis.get("posting_frequency", "none")
-        freq_points = {"none": 0, "rare": 5, "monthly": 10, "weekly": 20, "daily": 20}.get(freq, 0)
+        freq_points = {"none": 0, "rare": 4, "monthly": 8, "weekly": 15, "daily": 15}.get(freq, 0)
         add("posting_frequency", freq_points, freq)
 
         engagement = kpis.get("engagement_level", "none")
@@ -106,7 +115,7 @@ def score_channel(channel: str, kpis: dict) -> tuple[int, list[dict]]:
         add("subscriber_count tier", pts, subs)
 
         videos = kpis.get("video_count")
-        pts = _tier(videos, [(0, 0), (5, 5), (20, 10), (50, 20)])
+        pts = _tier(videos, [(0, 0), (1, 3), (5, 5), (20, 10), (50, 20)])  # 1+ videos counts, not just 5+
         add("video_count tier", pts, videos)
 
         freq = kpis.get("posting_frequency", "none")
@@ -136,7 +145,7 @@ def score_channel(channel: str, kpis: dict) -> tuple[int, list[dict]]:
             return 0, breakdown
 
         pages = kpis.get("pages_indexed_estimate")
-        pts = _tier(pages, [(0, 0), (5, 10), (20, 20), (50, 25)])
+        pts = _tier(pages, [(0, 0), (1, 5), (5, 10), (20, 20), (50, 25)])  # 1+ pages counts, not just 5+
         add("pages_indexed_estimate tier", pts, pages)
 
         backlink = kpis.get("backlink_signal", "none")
@@ -168,18 +177,66 @@ def score_channel(channel: str, kpis: dict) -> tuple[int, list[dict]]:
     return score, breakdown
 
 
+# A channel scores 0 if and only if it has no presence at all (every
+# score_channel branch gates on found/indexed and returns 0 when absent, and
+# awards >=20 the moment presence is confirmed). So "score > 0" is a reliable
+# stand-in for "this channel is actually live" without threading presence
+# flags separately - the invariant channel_availability() relies on.
+def channel_availability(channel_scores: dict[str, int]) -> dict:
+    """How many of the known channels the org is actually present on. Returns
+    {"present": int, "total": int, "score": 0-100} where score is the plain
+    percentage of channels that are live - 0 means no presence online at all."""
+    all_channels = list(CHANNEL_KPI_SCHEMA.keys())
+    total = len(all_channels)
+    present = sum(1 for ch in all_channels if (channel_scores.get(ch) or 0) > 0)
+    return {"present": present, "total": total, "score": round(present / total * 100) if total else 0}
+
+
+# Field on each channel that counts self-published pieces of content (posts,
+# pages, videos). Channels not listed here (google_business reviews,
+# news_mentions) aren't content the org publishes, so they don't contribute.
+_CONTENT_COUNT_FIELD = {
+    "website": "pages_indexed_estimate",
+    "youtube": "video_count",
+    **{ch: "post_count" for ch in _FOLLOWER_CHANNELS},
+}
+
+
+def content_pieces(channel: str, kpis: dict) -> int | None:
+    """Number of published pieces of content on one channel (pages online for
+    the website, videos for YouTube, posts for social), or None if this channel
+    doesn't track a content count or none was found."""
+    field = _CONTENT_COUNT_FIELD.get(channel)
+    if field is None:
+        return None
+    value = (kpis or {}).get(field)
+    return value if isinstance(value, int) else None
+
+
+# How much of the org score reflects breadth (how many channels are live at
+# all) vs. depth (how developed each one is). Depth already rewards presence
+# inside each channel; this makes "shows up on more channels" its own explicit
+# lever on top of that, per the operator's scoring intent.
+AVAILABILITY_WEIGHT = 0.3
+
+
 def score_org(channel_scores: dict[str, int]) -> tuple[int, list[dict]]:
-    """Straight average across every known channel (see CHANNEL_KPI_SCHEMA),
-    including 0 for channels with no presence at all - a missing channel is
-    real white space and should genuinely pull the org score down, not be
-    excluded from the average."""
+    """Blend of channel availability (breadth) and per-channel depth. Depth is
+    the straight average across every known channel (see CHANNEL_KPI_SCHEMA),
+    including 0 for channels with no presence - a missing channel is real white
+    space and should pull the score down. Availability is the share of channels
+    that are live at all. Both are 0 when there's no presence online anywhere,
+    so a score of 0 still means exactly that."""
     all_channels = list(CHANNEL_KPI_SCHEMA.keys())
     breakdown = [
         {"channel": ch, "score": channel_scores.get(ch, 0)}
         for ch in all_channels
     ]
-    total = sum(b["score"] for b in breakdown)
-    org_score = round(total / len(all_channels)) if all_channels else 0
+    if not all_channels:
+        return 0, breakdown
+    depth_avg = sum(b["score"] for b in breakdown) / len(all_channels)
+    availability = channel_availability(channel_scores)["score"]
+    org_score = round(AVAILABILITY_WEIGHT * availability + (1 - AVAILABILITY_WEIGHT) * depth_avg)
     return org_score, breakdown
 
 

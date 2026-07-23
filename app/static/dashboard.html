@@ -308,6 +308,7 @@
       ["Sites tracked", t.total_sites, t.analytics_sites+" with analytics"],
       ["Avg org score", t.avg_org_score==null?"—":t.avg_org_score, "across scored sites"],
       ["Score improvement", (t.total_score_improvement>0?"+":"")+t.total_score_improvement, "vs baselines"],
+      ["Content pieces", t.total_content_pieces==null?"—":t.total_content_pieces, "published across sites"],
       ["Installs this week", t.installs_this_week, "new sites (7d)"],
       ["Avg measure time", fmtDur(t.avg_measurement_seconds), "per scan"],
       ["Active agents", t.total_agents, "across all sites"],
@@ -325,13 +326,14 @@
       return '<tr>'
         +'<td><span class="site-name" data-id="'+s.id+'">'+esc(s.name)+'</span><div class="sub">'+esc(s.org_type||"")+(s.website_url?' · '+esc(s.website_url.replace(/^https?:\/\//,"")):"")+'</div></td>'
         +'<td>'+score+'</td>'
-        +'<td class="mono">'+(s.analytics_enabled?s.channel_count_scored+"/8":"—")+'</td>'
+        +'<td class="mono">'+(s.analytics_enabled?s.channel_count_scored+"/"+(s.channels_total||8):"—")+'</td>'
+        +'<td class="mono">'+(s.analytics_enabled?s.content_pieces:"—")+'</td>'
         +'<td class="mono">'+s.agent_count+'</td>'
         +'<td>'+status+'</td>'
         +'<td class="sub">'+ago(s.last_scan_at)+(s.last_scan_duration_seconds!=null?' · '+fmtDur(s.last_scan_duration_seconds):"")+'</td>'
         +'<td>'+(links||'<span class="sub">—</span>')+'</td>'
         +'</tr>';
-    }).join("") || '<tr><td colspan="7" class="empty">No sites yet.</td></tr>';
+    }).join("") || '<tr><td colspan="8" class="empty">No sites yet.</td></tr>';
 
     var logs=d.logs.map(function(l){
       return '<div class="log"><span class="icn '+l.kind+'"></span><div class="body"><div class="m">'+esc(l.detail)
@@ -342,7 +344,7 @@
       '<div class="tiles">'+tiles+'</div>'
       +'<div class="grid">'
         +'<div><h2 class="sec">Sites</h2><div class="tbl-wrap"><table>'
-          +'<thead><tr><th>Site</th><th>Score</th><th>Channels</th><th>Agents</th><th>Status</th><th>Last scan</th><th>Links</th></tr></thead>'
+          +'<thead><tr><th>Site</th><th>Score</th><th>Live</th><th>Content</th><th>Agents</th><th>Status</th><th>Last scan</th><th>Links</th></tr></thead>'
           +'<tbody>'+rows+'</tbody></table></div></div>'
         +'<div><h2 class="sec">Activity</h2><div class="logs">'+logs+'</div></div>'
       +'</div>';
@@ -416,6 +418,11 @@
         +deltaHtml(ins.org_score!=null&&ins.baseline_org_score!=null?ins.org_score-ins.baseline_org_score:null)
         +(ins.needs_review?' <span class="chip warn">needs review</span>':' <span class="chip ok">ok</span>')
         +'<span class="sub" style="margin-left:6px">baseline '+(ins.baseline_org_score==null?"—":ins.baseline_org_score)+' · updated '+ago(ins.latest_created_at)+'</span></div>';
+      if(ins.availability){
+        head+='<div class="sub" style="margin-top:8px">'
+          +'<strong>'+ins.availability.present+'/'+ins.availability.total+'</strong> channels live ('+ins.availability.score+'% availability)'
+          +' · <strong>'+(ins.content_volume?ins.content_volume.total:0)+'</strong> pieces of content published</div>';
+      }
     } else {
       head+='<div class="bigscore"><span class="sub">Analytics not enabled for this site.</span></div>';
     }
@@ -438,7 +445,7 @@
                  :r.needs_review?'<span class="badge" style="background:var(--warn-soft);color:var(--warn)">review</span>':"";
         return '<div class="kpi"><div class="c"><span>'+esc(r.channel.replace(/_/g," "))+'</span>'+badge+'</div>'
           +'<div class="s" style="color:'+scoreColor(r.score)+'">'+r.score+'</div>'
-          +'<div class="cls">'+esc(r.classification)+(r.stale&&r.last_measured_at?' · as of '+new Date(r.last_measured_at).toLocaleDateString():"")+'</div></div>';
+          +'<div class="cls">'+esc(r.classification)+(r.content_count!=null?' · '+r.content_count+' pieces':"")+(r.stale&&r.last_measured_at?' · as of '+new Date(r.last_measured_at).toLocaleDateString():"")+'</div></div>';
       }).join("");
       body=
         '<div class="two">'

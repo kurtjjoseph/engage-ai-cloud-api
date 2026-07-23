@@ -172,6 +172,20 @@ class EngageAI_Admin_Dashboard
                         </span>
                     <?php endif; ?>
                 </p>
+                <?php if (!empty($insights['availability'])): ?>
+                    <p class="description">
+                        <?php
+                        printf(
+                            /* translators: 1: channels present, 2: total channels, 3: availability percentage, 4: total pieces of content published */
+                            esc_html__('%1$d of %2$d channels live (%3$d%% availability) · %4$d pieces of content published', 'engage-ai'),
+                            (int) ($insights['availability']['present'] ?? 0),
+                            (int) ($insights['availability']['total'] ?? 0),
+                            (int) ($insights['availability']['score'] ?? 0),
+                            (int) ($insights['content_volume']['total'] ?? 0)
+                        );
+                        ?>
+                    </p>
+                <?php endif; ?>
                 <?php $this->render_radar_chart($insights); ?>
                 <table class="widefat striped">
                     <thead>

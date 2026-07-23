@@ -1,6 +1,11 @@
 from sqlalchemy.orm import Session
 from app.models.entities import AnalyticsSnapshot
-from app.services.analytics_scoring import classify_channel_trend, score_org
+from app.services.analytics_scoring import (
+    channel_availability,
+    classify_channel_trend,
+    content_pieces,
+    score_org,
+)
 
 
 def compute_insights(db: Session, organization_id: int) -> dict | None:
@@ -71,6 +76,9 @@ def compute_insights(db: Session, organization_id: int) -> dict | None:
             "score": score,
             "classification": classify_channel_trend(score, prior_scores(channel)),
             "score_breakdown": entry.get("score_breakdown", []),
+            # Pieces of content published on this channel (pages/videos/posts),
+            # or None for channels that don't track a content count.
+            "content_count": content_pieces(channel, entry.get("kpis") or {}),
             "notes": entry.get("notes"),
             # Reliability flags from the scan reconciliation (services/analytics_reconcile.py):
             # a held-forward value the web search failed to re-find this run (stale),
@@ -88,6 +96,22 @@ def compute_insights(db: Session, organization_id: int) -> dict | None:
 
     org_score, org_score_breakdown = score_org({r["channel"]: r["score"] for r in ranking})
 
+    # Breadth: how many channels are actually live (folded into org_score, and
+    # surfaced on its own so "5/8 channels online" is a first-class number).
+    availability = channel_availability({r["channel"]: r["score"] for r in ranking})
+
+    # Volume: total pieces of content published across content-bearing channels,
+    # plus the per-channel counts that make up the total.
+    content_by_channel = {
+        r["channel"]: r["content_count"]
+        for r in ranking
+        if r["content_count"] is not None
+    }
+    content_volume = {
+        "total": sum(content_by_channel.values()),
+        "by_channel": content_by_channel,
+    }
+
     baseline = (
         db.query(AnalyticsSnapshot)
         .filter(AnalyticsSnapshot.organization_id == organization_id, AnalyticsSnapshot.is_baseline.is_(True))
@@ -100,6 +124,8 @@ def compute_insights(db: Session, organization_id: int) -> dict | None:
         "org_score": org_score,
         "org_score_breakdown": org_score_breakdown,
         "baseline_org_score": baseline.org_score if baseline else None,
+        "availability": availability,
+        "content_volume": content_volume,
         "ranking": ranking,
         "summary": latest_full_sweep.summary,
         # Snapshot-level roll-up: true if the latest sweep was flagged, or any
