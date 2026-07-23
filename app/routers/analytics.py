@@ -1,6 +1,11 @@
+import ipaddress
+import re
+import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal, get_db
@@ -65,6 +70,104 @@ def build_request_context(org: Organization, requested_channels: list[str] | Non
     return ctx
 
 
+_SITE_PROBE_UA = "EngageAI-SiteCheck/1.0 (+https://engage-ai-api.onrender.com)"
+
+
+def _is_public_host(host: str) -> bool:
+    """SSRF guard: website_url can be tenant-set, so before the server fetches
+    it we refuse hosts that resolve to loopback/private/link-local/reserved
+    ranges (e.g. 127.0.0.1, 10.x, 169.254.169.254 cloud metadata)."""
+    try:
+        for info in socket.getaddrinfo(host, None):
+            ip = ipaddress.ip_address(info[4][0])
+            if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                    or ip.is_multicast or ip.is_unspecified):
+                return False
+    except Exception:  # noqa: BLE001 - unresolvable host is treated as not-probeable
+        return False
+    return True
+
+
+def _count_sitemap(base: str) -> int | None:
+    """Best-effort count of published URLs from the site's sitemap - a decent
+    proxy for how much content is online. Follows one level of sitemap index."""
+    try:
+        for path in ("/sitemap_index.xml", "/sitemap.xml"):
+            r = httpx.get(base + path, timeout=8.0, follow_redirects=True, headers={"User-Agent": _SITE_PROBE_UA})
+            if r.status_code < 400 and "<loc>" in r.text.lower():
+                text = r.text
+                locs = re.findall(r"<loc>(.*?)</loc>", text, re.IGNORECASE | re.DOTALL)
+                if "<sitemapindex" in text.lower():
+                    total = 0
+                    for child in locs[:5]:  # bound worst-case latency in the background scan
+                        try:
+                            rr = httpx.get(child.strip(), timeout=5.0, follow_redirects=True,
+                                           headers={"User-Agent": _SITE_PROBE_UA})
+                            total += len(re.findall(r"<loc>", rr.text, re.IGNORECASE))
+                        except Exception:  # noqa: BLE001
+                            continue
+                    return total or None
+                return len(locs) or None
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _probe_website(website_url: str | None) -> dict | None:
+    """Direct server-side liveness + content check of a site's OWN url. The
+    model's web_search can't find a small/new site and web_fetch's SSRF gate
+    refuses arbitrary domains, so a genuinely live site otherwise scores 0. A
+    plain server-side GET confirms it's up and counts its sitemap pages.
+    Returns {"live": True, "page_count": int|None} or None. Best-effort."""
+    if not website_url:
+        return None
+    parsed = urlparse(website_url if "://" in website_url else "https://" + website_url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+    if not _is_public_host(parsed.hostname):
+        return None
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    try:
+        r = httpx.get(base, timeout=8.0, follow_redirects=True, headers={"User-Agent": _SITE_PROBE_UA})
+        if r.status_code >= 400:
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    return {"live": True, "page_count": _count_sitemap(base)}
+
+
+def _apply_website_ground_truth(entry: dict | None, site_facts: dict | None, website_url: str | None = None) -> dict | None:
+    """Score the website channel from ground truth instead of a web-search guess
+    that a small/new site fails. Presence comes from the installed plugin
+    (site_facts) when available, otherwise from a direct server-side liveness
+    check of the site's own url. The page count is the largest of: the plugin's
+    real published post+page count, the site's sitemap URL count, and the
+    model's own estimate - so the real site always scores its presence and
+    content. Returns a website entry even when the model found nothing; no-op
+    only when the site is neither plugin-confirmed nor reachable."""
+    plugin_present = bool(site_facts and site_facts.get("website_present"))
+    plugin_count = ((site_facts or {}).get("published_posts") or 0) + ((site_facts or {}).get("published_pages") or 0) if site_facts else 0
+
+    probe = None if plugin_present else _probe_website(website_url)
+    if not plugin_present and not probe:
+        return entry  # neither the plugin nor the server could confirm the site
+
+    kpis = dict((entry or {}).get("kpis") or {})
+    counts = [plugin_count, (probe or {}).get("page_count") or 0, kpis.get("pages_indexed_estimate") or 0]
+    kpis["indexed"] = True
+    best = max(counts)
+    kpis["pages_indexed_estimate"] = best or kpis.get("pages_indexed_estimate")
+    note = ("Presence and content count confirmed by the installed Engage AI plugin."
+            if plugin_present else "Site confirmed live by a direct server-side check.")
+    prior_note = (entry or {}).get("notes") or ""
+    return {
+        "channel": "website",
+        **(entry or {}),
+        "kpis": kpis,
+        "notes": (prior_note + " " + note).strip() if note not in prior_note else prior_note,
+    }
+
+
 def _scored_not_found(channel: str) -> dict:
     """A genuine not-found channel entry (score 0), used when a per-channel
     scan returns nothing or fails - reconciliation may still hold last-known
@@ -89,7 +192,7 @@ def _deterministic_summary(final_channels: list[dict], org_score: int | None) ->
     return " ".join(parts)
 
 
-def _execute_scan(snapshot_id: int, org_context: dict, channels: list[str] | None, include_pages: bool) -> None:
+def _execute_scan(snapshot_id: int, org_context: dict, channels: list[str] | None, include_pages: bool, site_facts: dict | None = None) -> None:
     """Scans each channel with its own parallel web-search call and streams the
     scored result onto the pending snapshot as it lands, so the dashboard fills
     in channel-by-channel over a few seconds instead of waiting 30-90s for one
@@ -134,6 +237,8 @@ def _execute_scan(snapshot_id: int, org_context: dict, channels: list[str] | Non
                     except Exception as exc:  # noqa: BLE001 - one channel failing must not sink the scan
                         print(f"[analytics] snapshot {snapshot.id} channel {channel} failed: {exc}", flush=True)
                         entry, sources, errors = None, [], errors + 1
+                    if channel == "website":
+                        entry = _apply_website_ground_truth(entry, site_facts, org_context.get("website_url"))
                     if entry is None:
                         scored = _scored_not_found(channel)
                     else:
@@ -300,7 +405,7 @@ def run_scan(
     db.commit()
     db.refresh(snapshot)
 
-    background_tasks.add_task(_execute_scan, snapshot.id, _org_context(org), valid_channels, include_pages)
+    background_tasks.add_task(_execute_scan, snapshot.id, _org_context(org), valid_channels, include_pages, org.site_facts)
 
     return snapshot
 

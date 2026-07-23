@@ -106,6 +106,72 @@ def test_availability_weight_is_a_sane_fraction():
 
 # --- content_pieces ---
 
+def test_website_ground_truth_scores_a_site_search_cannot_find():
+    """A live site the web search can't find (indexed=false, no pages) still
+    scores its real presence + content once the plugin reports ground truth."""
+    from app.routers.analytics import _apply_website_ground_truth
+
+    # What a scan of a small/unindexed site comes back with: not found.
+    not_found = {"channel": "website", "kpis": {"indexed": False, "pages_indexed_estimate": None,
+                                                "backlink_signal": "none", "freshness": "stale"}}
+    before, _ = score_channel("website", not_found["kpis"])
+    assert before == 0
+
+    facts = {"website_present": True, "published_posts": 40, "published_pages": 6}
+    merged = _apply_website_ground_truth(not_found, facts)
+    after, _ = score_channel("website", merged["kpis"])
+    assert merged["kpis"]["indexed"] is True
+    assert merged["kpis"]["pages_indexed_estimate"] == 46  # 40 posts + 6 pages
+    assert after > 0
+    assert content_pieces("website", merged["kpis"]) == 46
+
+
+def test_website_ground_truth_builds_entry_when_model_found_nothing():
+    """Even when the scan returned no website entry at all (None), ground truth
+    produces a scored website entry."""
+    from app.routers.analytics import _apply_website_ground_truth
+
+    entry = _apply_website_ground_truth(None, {"website_present": True, "published_posts": 3, "published_pages": 1})
+    assert entry["channel"] == "website"
+    assert entry["kpis"]["indexed"] is True
+    assert entry["kpis"]["pages_indexed_estimate"] == 4
+
+
+def test_website_ground_truth_noop_without_facts():
+    from app.routers.analytics import _apply_website_ground_truth
+
+    # No plugin facts and no website_url -> no probe, nothing to confirm.
+    entry = {"channel": "website", "kpis": {"indexed": False}}
+    assert _apply_website_ground_truth(entry, None) is entry
+    assert _apply_website_ground_truth(entry, {"website_present": False}) is entry
+
+
+def test_website_ground_truth_uses_server_probe_when_no_plugin(monkeypatch):
+    """A live site with no plugin still scores via the direct server-side check."""
+    import app.routers.analytics as an
+    monkeypatch.setattr(an, "_probe_website", lambda url: {"live": True, "page_count": 34})
+    merged = an._apply_website_ground_truth(None, None, "https://example.org/")
+    assert merged["kpis"]["indexed"] is True
+    assert merged["kpis"]["pages_indexed_estimate"] == 34
+    assert "server-side check" in merged["notes"]
+    score, _ = score_channel("website", merged["kpis"])
+    assert score > 0
+
+
+def test_website_ground_truth_noop_when_site_unreachable(monkeypatch):
+    import app.routers.analytics as an
+    monkeypatch.setattr(an, "_probe_website", lambda url: None)  # dead site
+    entry = {"channel": "website", "kpis": {"indexed": False}}
+    assert an._apply_website_ground_truth(entry, None, "https://dead.example/") is entry
+
+
+def test_ssrf_guard_blocks_private_hosts():
+    from app.routers.analytics import _is_public_host
+    assert _is_public_host("127.0.0.1") is False
+    assert _is_public_host("169.254.169.254") is False  # cloud metadata
+    assert _is_public_host("10.0.0.5") is False
+
+
 def test_content_pieces_per_channel_source_field():
     assert content_pieces("website", {"pages_indexed_estimate": 42}) == 42
     assert content_pieces("youtube", {"video_count": 12}) == 12

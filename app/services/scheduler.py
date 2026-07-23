@@ -87,10 +87,11 @@ def run_all_scheduled_analytics_scans() -> None:
                 db.refresh(snapshot)
                 snapshot_id = snapshot.id
                 org_context = _org_context(org)
+                site_facts = org.site_facts
             finally:
                 db.close()
             print(f"[scheduler] scheduled analytics scan starting for org {org_id} (snapshot {snapshot_id})", flush=True)
-            _execute_scan(snapshot_id, org_context, None, False)  # opens its own session, scores + writes
+            _execute_scan(snapshot_id, org_context, None, False, site_facts)  # opens its own session, scores + writes
         except Exception as exc:  # noqa: BLE001 - one org's failure must not sink the whole scheduled batch
             print(f"[scheduler] scheduled analytics scan failed for org {org_id}: {exc}", flush=True)
         if stagger and index < len(org_ids) - 1:

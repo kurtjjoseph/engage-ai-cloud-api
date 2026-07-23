@@ -66,6 +66,16 @@ class Organization(Base):
     # {"youtube": 80, "instagram": 60, ...} - per-channel targets, optional
     target_channel_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # Ground-truth facts the installed Engage AI plugin reports about its own
+    # WordPress site (POST /organizations/{id}/site-report), e.g.
+    # {"website_present": true, "published_posts": 42, "published_pages": 6,
+    #  "reported_at": "..."}. A site running the plugin definitely exists and
+    # knows its own real published-content count, so the analytics scan uses
+    # these as authoritative for the "website" channel instead of a web-search
+    # guess - a small/new site the search engine hasn't indexed (and that
+    # web_fetch's SSRF gate refuses) otherwise scores 0 despite being live.
+    site_facts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     owner = relationship("User", back_populates="organizations")
     content_items = relationship("ContentItem", back_populates="organization")
     tickets = relationship("Ticket", back_populates="organization")

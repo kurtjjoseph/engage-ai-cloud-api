@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.14.0
+ * Version: 0.15.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.14.0');
+define('ENGAGEAI_VERSION', '0.15.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -209,9 +209,30 @@ final class EngageAI_Plugin
         // The API may have merged this org into a pre-existing one for the same
         // site; if so, repoint this install at the surviving org id.
         if (!empty($result['organization_id']) && (int) $result['organization_id'] !== (int) $org_id) {
-            $client->set_organization_id((int) $result['organization_id']);
+            $org_id = (int) $result['organization_id'];
+            $client->set_organization_id($org_id);
         }
         update_option('engageai_site_synced', 1, false);
+
+        // Send the site's ground-truth content counts right away, so the very
+        // next scan scores the website channel from real data.
+        self::report_site_facts($client, $org_id);
+    }
+
+    /**
+     * Tells the API this site is live and how much content it has actually
+     * published (real WordPress post/page counts), so the analytics scan scores
+     * the website channel from ground truth instead of a web-search guess that
+     * a small or new site fails. Called on first run and on each cron tick.
+     */
+    public static function report_site_facts(EngageAI_Api_Client $client, int $org_id): void
+    {
+        if ($org_id <= 0) {
+            return;
+        }
+        $posts = (int) (wp_count_posts('post')->publish ?? 0);
+        $pages = (int) (wp_count_posts('page')->publish ?? 0);
+        $client->report_site($org_id, $posts, $pages);
     }
 
     /**

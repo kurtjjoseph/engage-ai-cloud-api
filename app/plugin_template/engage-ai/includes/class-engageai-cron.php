@@ -49,7 +49,17 @@ class EngageAI_Cron
         }
 
         $org_id = $client->get_organization_id();
-        if (!$org_id || !self::niche_enabled($client, $org_id)) {
+        if (!$org_id) {
+            return;
+        }
+
+        // Keep the API's ground-truth content counts current as posts/pages are
+        // published, so the website analytics channel always scores real data.
+        if (class_exists('EngageAI_Plugin')) {
+            EngageAI_Plugin::report_site_facts($client, (int) $org_id);
+        }
+
+        if (!self::niche_enabled($client, $org_id)) {
             return;
         }
 

@@ -139,6 +139,23 @@ class EngageAI_Api_Client
     }
 
     /**
+     * Reports ground truth about this WordPress site to the API: the site is
+     * definitely live (the plugin runs on it) and WordPress knows its exact
+     * published post/page count. The API uses this as authoritative for the
+     * "website" analytics channel, so a small/new site the web search can't
+     * find still scores its real presence and content instead of 0.
+     * @return array|WP_Error
+     */
+    public function report_site(int $org_id, int $published_posts, int $published_pages)
+    {
+        return $this->request('POST', '/organizations/' . $org_id . '/site-report', [
+            'website_present' => true,
+            'published_posts' => $published_posts,
+            'published_pages' => $published_pages,
+        ]);
+    }
+
+    /**
      * @param string[] $channels empty = full sweep, otherwise scopes the scan (e.g. ["website"])
      * @param bool $include_pages adds a per-page visibility ranking to the website channel - costs more
      * @return array|WP_Error

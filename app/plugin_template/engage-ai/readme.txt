@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.14.0
+Stable tag: 0.15.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -29,6 +29,9 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 6. Go to Engage AI > Generate Content for the church-engagement generators, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.15.0 =
+* The plugin now reports your site's real published post and page counts to the API, so your website's analytics score reflects that the site is live and how much content it has actually published - even when a search engine hasn't indexed the site yet. Previously a small or brand-new site could score 0 across the board because the web search couldn't find it; now the website channel is scored from ground truth the plugin knows directly. Counts refresh automatically as you publish.
 
 = 0.14.0 =
 * Scores now reward channel availability (how many channels you're actually live on) as an explicit part of the org score, and count the number of posts/pages/videos published per channel. Simply having a channel and having any content on it now both count - you no longer need a large volume before content registers. The Dashboard and Analytics pages now show "X of 8 channels live" and total pieces of content published. A score of 0 means no presence online at all.

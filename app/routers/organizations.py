@@ -162,6 +162,13 @@ class SiteHello(BaseModel):
     admin_url: str | None = None
 
 
+class SiteReport(BaseModel):
+    """Ground-truth facts the plugin knows about its own WordPress site."""
+    website_present: bool = True
+    published_posts: int | None = None
+    published_pages: int | None = None
+
+
 @router.post("/{org_id}/site-hello")
 def site_hello(org_id: int, payload: SiteHello, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Called once by the plugin on its first run. Records where the plugin is
@@ -206,3 +213,24 @@ def site_hello(org_id: int, payload: SiteHello, db: Session = Depends(get_db), u
     db.commit()
     db.refresh(keep)
     return {"organization_id": keep.id, "merged": True, "merged_from": drop.id}
+
+
+@router.post("/{org_id}/site-report")
+def site_report(org_id: int, payload: SiteReport, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Ground truth from the installed plugin about its own WordPress site: the
+    site is definitely live (the plugin runs on it) and WordPress knows the
+    exact published post/page count. Stored on the org and used as authoritative
+    for the "website" analytics channel, so a small/new site the web search
+    can't find still scores its real presence and content instead of 0. Called
+    on first run and on each plugin cron tick, so the counts stay current."""
+    from datetime import datetime
+
+    org = get_owned_org(org_id, db, user)
+    org.site_facts = {
+        "website_present": bool(payload.website_present),
+        "published_posts": payload.published_posts,
+        "published_pages": payload.published_pages,
+        "reported_at": datetime.utcnow().isoformat(),
+    }
+    db.commit()
+    return {"ok": True, "site_facts": org.site_facts}
