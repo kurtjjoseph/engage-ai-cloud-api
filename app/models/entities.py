@@ -74,6 +74,22 @@ class Organization(Base):
     publications = relationship("Publication", back_populates="organization")
 
 
+class PasswordResetToken(Base):
+    """One single-use, time-limited password-reset token. Created by
+    POST /auth/password-reset/request (emailed to the user via Brevo), consumed
+    by POST /auth/password-reset/confirm. Random + unguessable + short-lived so
+    a leaked/old link can't reset an account."""
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    token: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ContentItem(Base):
     __tablename__ = "content_items"
 

@@ -213,9 +213,14 @@
   el("addSiteBtn").addEventListener("click",addSite);
   el("forgotLink").addEventListener("click",function(e){
     e.preventDefault();
-    // Interim: real self-serve reset is pending a delivery decision (the API
-    // has no email service yet). Point the user at the operator for now.
-    el("forgotMsg").textContent="Password reset isn't self-serve yet — ask your operator to reset it for you.";
+    var m=el("forgotMsg");
+    var email=(el("email").value||"").trim() || (prompt("Enter your account email to reset your password:")||"").trim();
+    if(!email){ m.style.color="var(--bad)"; m.textContent="Enter your email above first, then click Forgot password."; return; }
+    m.style.color="var(--ink-soft)"; m.textContent="Sending…";
+    fetch("/auth/password-reset/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ m.style.color="var(--ink-soft)"; m.textContent=d.message||"If that email has an account, a reset link has been sent."; })
+      .catch(function(){ m.style.color="var(--bad)"; m.textContent="Couldn't send the reset request — try again."; });
   });
 
   function addSite(){

@@ -20,6 +20,7 @@ from app.services.analytics_insights import compute_insights
 router = APIRouter(tags=["dashboard"])
 
 _DASHBOARD_HTML = Path(__file__).resolve().parent.parent / "static" / "dashboard.html"
+_RESET_HTML = Path(__file__).resolve().parent.parent / "static" / "reset.html"
 
 
 def _agent_niches(org: Organization) -> list[str]:
@@ -259,3 +260,10 @@ def dashboard_page():
     """The operator control dashboard HTML (public shell; it logs in and fetches
     the authed JSON endpoints above same-origin)."""
     return FileResponse(str(_DASHBOARD_HTML), media_type="text/html")
+
+
+@router.get("/reset")
+def reset_page():
+    """Password-reset page (public shell; reads ?token= and calls
+    POST /auth/password-reset/confirm)."""
+    return FileResponse(str(_RESET_HTML), media_type="text/html")

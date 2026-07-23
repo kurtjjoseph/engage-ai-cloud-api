@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     analytics_scan_interval_hours: int = 720
     analytics_scan_stagger_seconds: int = 30
 
+    # Transactional email via Brevo (services/email.py) - used for password
+    # reset links. Without these set, reset still works but the link is only
+    # logged server-side for an operator to relay (never returned to the caller).
+    brevo_api_key: str | None = None
+    brevo_sender_email: str | None = None
+    brevo_sender_name: str = "Engage AI"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
