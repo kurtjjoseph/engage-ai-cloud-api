@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.16.0
+ * Version: 0.17.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.16.0');
+define('ENGAGEAI_VERSION', '0.17.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -253,8 +253,16 @@ final class EngageAI_Plugin
      * to "business". Deliberately simple and safe - a wrong guess just yields
      * generically-useful posts, and the operator can refine later.
      */
+    /** Website types the operator can choose from (Settings) or the plugin can detect. */
+    public const SITE_TYPES = ['church', 'business', 'ecommerce'];
+
     public static function detect_site_type(): string
     {
+        // An operator-set type (Settings > Organization details) always wins.
+        $override = (string) get_option('engageai_site_type', '');
+        if (in_array($override, self::SITE_TYPES, true)) {
+            return $override;
+        }
         if (class_exists('WooCommerce') || function_exists('WC')) {
             return 'ecommerce';
         }

@@ -164,6 +164,19 @@ class EngageAI_Admin_Settings
             $this->redirect_with_notice('error', $result->get_error_message());
         }
 
+        // Website type: '' = auto-detect (clear the override); a valid type wins
+        // over detection. Push it to the API immediately so the next content
+        // suggestion and scan use it.
+        $site_type = sanitize_key($_POST['engageai_site_type'] ?? '');
+        if (class_exists('EngageAI_Plugin') && in_array($site_type, EngageAI_Plugin::SITE_TYPES, true)) {
+            update_option('engageai_site_type', $site_type, false);
+        } else {
+            delete_option('engageai_site_type');
+        }
+        if (class_exists('EngageAI_Plugin')) {
+            EngageAI_Plugin::report_site_facts($this->client, (int) $org_id);
+        }
+
         $this->redirect_with_notice('success', __('Organization details updated.', 'engage-ai'));
     }
 
@@ -436,6 +449,19 @@ class EngageAI_Admin_Settings
                             <tr>
                                 <th><label for="engageai_org_audience"><?php esc_html_e('Audience', 'engage-ai'); ?></label></th>
                                 <td><input type="text" id="engageai_org_audience" name="engageai_org_audience" class="regular-text" value="<?php echo esc_attr($active_org['audience'] ?? ''); ?>"></td>
+                            </tr>
+                            <tr>
+                                <th><label for="engageai_site_type"><?php esc_html_e('Website type', 'engage-ai'); ?></label></th>
+                                <td>
+                                    <?php $current_type = (string) get_option('engageai_site_type', ''); ?>
+                                    <select id="engageai_site_type" name="engageai_site_type">
+                                        <option value="" <?php selected($current_type, ''); ?>><?php esc_html_e('Auto-detect', 'engage-ai'); ?></option>
+                                        <option value="church" <?php selected($current_type, 'church'); ?>><?php esc_html_e('Church / ministry', 'engage-ai'); ?></option>
+                                        <option value="business" <?php selected($current_type, 'business'); ?>><?php esc_html_e('Business / service / creator', 'engage-ai'); ?></option>
+                                        <option value="ecommerce" <?php selected($current_type, 'ecommerce'); ?>><?php esc_html_e('Online shop (ecommerce)', 'engage-ai'); ?></option>
+                                    </select>
+                                    <p class="description"><?php esc_html_e('Tailors content suggestions to your kind of site. Auto-detect uses WooCommerce and your organization type.', 'engage-ai'); ?></p>
+                                </td>
                             </tr>
                         </table>
                         <?php submit_button(__('Save organization details', 'engage-ai')); ?>
