@@ -169,14 +169,29 @@ class EngageAI_Api_Client
     }
 
     /**
-     * Asks the API to draft a few website posts tailored to this site's type
-     * (see site-report's site_type). Saved as tracked content and returned.
-     * Backed by an LLM call, so give it the longer timeout.
+     * Per-channel content-type catalog (5 types per channel, each with what
+     * engagement lever it raises) for the content generator's picker.
+     * @return array|WP_Error {channel: [{key, label, raises}, ...], ...}
+     */
+    public function get_content_types()
+    {
+        return $this->request('GET', '/content/types');
+    }
+
+    /**
+     * Asks the API to draft content and saves it as tracked content. With
+     * $channel + $content_type set, drafts that content type for that channel
+     * (shaped to raise its engagement score); otherwise drafts website posts
+     * tailored to the site type. Backed by an LLM call, so longer timeout.
      * @return array|WP_Error list of the newly-suggested ContentItems
      */
-    public function suggest_content(int $org_id, int $count = 3)
+    public function suggest_content(int $org_id, int $count = 3, string $channel = '', string $content_type = '')
     {
-        return $this->request('POST', '/content/suggest?organization_id=' . $org_id . '&count=' . $count, null, true, 120);
+        $path = '/content/suggest?organization_id=' . $org_id . '&count=' . $count;
+        if ($channel !== '' && $content_type !== '') {
+            $path .= '&channel=' . rawurlencode($channel) . '&content_type=' . rawurlencode($content_type);
+        }
+        return $this->request('POST', $path, null, true, 120);
     }
 
     /**

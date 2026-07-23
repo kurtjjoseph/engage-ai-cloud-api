@@ -127,6 +127,62 @@ def test_suggest_503_when_generation_empty(client, db_session, monkeypatch):
     assert resp.status_code == 503
 
 
+def test_content_types_catalog_has_five_per_channel(client, db_session):
+    user, _org = _seed(db_session)
+    client._holder["user"] = user
+    resp = client.get("/content/types")
+    assert resp.status_code == 200
+    cat = resp.json()
+    assert set(cat) == {"website", "google_business", "youtube", "facebook",
+                        "instagram", "linkedin", "twitter_x", "news_mentions"}
+    for channel, types in cat.items():
+        assert len(types) == 5, channel
+        assert all({"key", "label", "raises"} <= set(t) for t in types)
+
+
+def test_suggest_for_channel_saves_channel_content(client, db_session, monkeypatch):
+    user, org = _seed(db_session, site_type="church")
+    client._holder["user"] = user
+    seen = {}
+
+    def fake(org_context, channel, content_type, site_type, count):
+        seen.update(channel=channel, content_type=content_type, site_type=site_type)
+        return [{"title": "Post", "body": "caption line", "hashtags": ["faith", "hope"],
+                 "label": "Educational carousel", "angle": "Raises engagement + saves"}]
+
+    monkeypatch.setattr(content_router.content_ideas, "suggest_for_channel", fake)
+    resp = client.post(f"/content/suggest?organization_id={org.id}&channel=instagram&content_type=ig_carousel")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert seen == {"channel": "instagram", "content_type": "ig_carousel", "site_type": "church"}
+    item = body[0]
+    assert item["content_type"] == "instagram"
+    assert item["output_payload"]["channel"] == "instagram"
+    assert item["output_payload"]["body"] == "caption line"
+    assert item["output_payload"]["hashtags"] == ["faith", "hope"]
+    assert "website_post" not in item["output_payload"]  # not a website channel
+
+
+def test_suggest_for_website_channel_sets_website_post(client, db_session, monkeypatch):
+    user, org = _seed(db_session, site_type="business")
+    client._holder["user"] = user
+    monkeypatch.setattr(content_router.content_ideas, "suggest_for_channel",
+                        lambda *a, **k: [{"title": "T", "body": "<p>hi</p>", "hashtags": [], "label": "Blog article", "angle": "Raises freshness"}])
+    resp = client.post(f"/content/suggest?organization_id={org.id}&channel=website&content_type=blog_post")
+    assert resp.status_code == 200
+    op = resp.json()[0]["output_payload"]
+    assert op["website_post"]["body_html"] == "<p>hi</p>"  # website drafts stay WP-publishable
+
+
+def test_suggest_invalid_content_type_returns_503(client, db_session):
+    # No monkeypatch: the real service returns [] for an unknown type without any
+    # network call (entry lookup short-circuits), so the endpoint reports 503.
+    user, org = _seed(db_session, site_type="business")
+    client._holder["user"] = user
+    resp = client.post(f"/content/suggest?organization_id={org.id}&channel=instagram&content_type=not_a_real_type")
+    assert resp.status_code == 503
+
+
 def test_suggest_404_for_unowned_org(client, db_session, monkeypatch):
     _owner, org = _seed(db_session, site_type="business")
     intruder = User(email=f"intruder-{next(_email_counter)}@example.com", hashed_password="x")

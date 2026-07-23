@@ -46,7 +46,13 @@ class EngageAI_Admin_Content
             $this->redirect(['error' => 'not_ready']);
         }
         $count = max(1, min(6, (int) ($_POST['count'] ?? 3)));
-        $result = $this->client->suggest_content((int) $org_id, $count);
+        $channel = '';
+        $type = '';
+        $selection = sanitize_text_field($_POST['channel_type'] ?? '');
+        if (strpos($selection, '|') !== false) {
+            [$channel, $type] = array_map('sanitize_key', explode('|', $selection, 2));
+        }
+        $result = $this->client->suggest_content((int) $org_id, $count, $channel, $type);
         if (is_wp_error($result)) {
             $this->redirect(['error' => rawurlencode($result->get_error_message())]);
         }
@@ -107,6 +113,8 @@ class EngageAI_Admin_Content
         $site_type = class_exists('EngageAI_Plugin') ? EngageAI_Plugin::detect_site_type() : 'business';
         $items = $this->client->get_content($org_id);
         $items = is_wp_error($items) ? [] : $items;
+        $types = $this->client->get_content_types();
+        $types = is_wp_error($types) ? [] : $types;
         ?>
         <div class="wrap engageai-wrap">
             <h1><?php esc_html_e('Content', 'engage-ai'); ?></h1>
@@ -116,7 +124,7 @@ class EngageAI_Admin_Content
                 <?php
                 printf(
                     /* translators: %s: detected site type, e.g. "church" */
-                    esc_html__('Suggestions are tailored to your site type: %s. Each draft is saved here and can be turned into a WordPress draft to review before publishing.', 'engage-ai'),
+                    esc_html__('Drafts are tailored to your site type: %s. Pick a channel and content type designed to raise that channel\'s engagement score - or leave it on the default to draft website posts. Each draft is saved below.', 'engage-ai'),
                     '<strong>' . esc_html($site_type) . '</strong>'
                 );
                 ?>
@@ -125,38 +133,71 @@ class EngageAI_Admin_Content
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:16px 0;">
                 <input type="hidden" name="action" value="engageai_suggest_content">
                 <?php wp_nonce_field('engageai_suggest_content'); ?>
-                <label for="engageai-count"><?php esc_html_e('How many ideas', 'engage-ai'); ?></label>
+                <label for="engageai-channel-type"><?php esc_html_e('What to create', 'engage-ai'); ?></label>
+                <select id="engageai-channel-type" name="channel_type" style="min-width:340px;">
+                    <option value=""><?php esc_html_e('Website posts (tailored to site type)', 'engage-ai'); ?></option>
+                    <?php foreach ($types as $channel => $channel_types): ?>
+                        <optgroup label="<?php echo esc_attr($this->channel_label($channel)); ?>">
+                            <?php foreach ($channel_types as $ct): ?>
+                                <option value="<?php echo esc_attr($channel . '|' . ($ct['key'] ?? '')); ?>">
+                                    <?php echo esc_html(($ct['label'] ?? '') . ' — raises ' . ($ct['raises'] ?? '')); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </optgroup>
+                    <?php endforeach; ?>
+                </select>
+                <label for="engageai-count" style="margin-left:10px;"><?php esc_html_e('How many', 'engage-ai'); ?></label>
                 <select id="engageai-count" name="count">
                     <?php foreach ([2, 3, 4, 5] as $n): ?>
                         <option value="<?php echo esc_attr((string) $n); ?>" <?php selected($n, 3); ?>><?php echo esc_html((string) $n); ?></option>
                     <?php endforeach; ?>
                 </select>
-                <button type="submit" class="button button-primary"><?php esc_html_e('Suggest content', 'engage-ai'); ?></button>
+                <button type="submit" class="button button-primary"><?php esc_html_e('Generate content', 'engage-ai'); ?></button>
             </form>
 
             <h2><?php esc_html_e('Generated content', 'engage-ai'); ?></h2>
             <?php if (empty($items)): ?>
-                <p><?php esc_html_e('Nothing yet. Use "Suggest content" above to draft your first posts.', 'engage-ai'); ?></p>
+                <p><?php esc_html_e('Nothing yet. Use "Generate content" above to draft your first posts.', 'engage-ai'); ?></p>
             <?php else: ?>
                 <table class="widefat striped">
                     <thead>
                         <tr>
                             <th><?php esc_html_e('Title', 'engage-ai'); ?></th>
-                            <th><?php esc_html_e('Type', 'engage-ai'); ?></th>
-                            <th><?php esc_html_e('Why', 'engage-ai'); ?></th>
+                            <th><?php esc_html_e('Channel / type', 'engage-ai'); ?></th>
+                            <th><?php esc_html_e('Draft', 'engage-ai'); ?></th>
                             <th><?php esc_html_e('Action', 'engage-ai'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($items as $item): ?>
                             <?php
-                            $angle = $item['output_payload']['angle'] ?? ($item['input_payload']['angle'] ?? '');
-                            $is_website_post = !empty($item['output_payload']['website_post']['body_html']);
+                            $out = $item['output_payload'] ?? [];
+                            $channel = $out['channel'] ?? ($item['content_type'] ?? '');
+                            $type_label = $out['content_type_label'] ?? str_replace('_', ' ', (string) ($item['content_type'] ?? ''));
+                            $angle = $out['angle'] ?? ($item['input_payload']['angle'] ?? '');
+                            $body = $out['body'] ?? ($out['website_post']['body_html'] ?? '');
+                            $hashtags = $out['hashtags'] ?? [];
+                            $is_website_post = !empty($out['website_post']['body_html']);
                             ?>
                             <tr>
-                                <td><strong><?php echo esc_html($item['title'] ?? ''); ?></strong></td>
-                                <td><?php echo esc_html(str_replace('_', ' ', (string) ($item['content_type'] ?? ''))); ?></td>
-                                <td class="description"><?php echo esc_html($angle); ?></td>
+                                <td>
+                                    <strong><?php echo esc_html($item['title'] ?? ''); ?></strong>
+                                    <?php if ($angle): ?><div class="description"><?php echo esc_html($angle); ?></div><?php endif; ?>
+                                </td>
+                                <td><?php echo esc_html($this->channel_label($channel)); ?><br><span class="description"><?php echo esc_html($type_label); ?></span></td>
+                                <td>
+                                    <?php if ($body): ?>
+                                        <details>
+                                            <summary style="cursor:pointer;"><?php esc_html_e('View / copy', 'engage-ai'); ?></summary>
+                                            <textarea readonly rows="8" class="large-text code" style="margin-top:6px;"><?php echo esc_textarea($body); ?></textarea>
+                                            <?php if (!empty($hashtags)): ?>
+                                                <p class="description"><?php echo esc_html('#' . implode(' #', array_map('sanitize_text_field', $hashtags))); ?></p>
+                                            <?php endif; ?>
+                                        </details>
+                                    <?php else: ?>
+                                        <span class="description">&mdash;</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td>
                                     <?php if ($is_website_post): ?>
                                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -166,7 +207,7 @@ class EngageAI_Admin_Content
                                             <button type="submit" class="button"><?php esc_html_e('Create WordPress draft', 'engage-ai'); ?></button>
                                         </form>
                                     <?php else: ?>
-                                        <span class="description">&mdash;</span>
+                                        <span class="description"><?php esc_html_e('Copy & post', 'engage-ai'); ?></span>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -176,6 +217,22 @@ class EngageAI_Admin_Content
             <?php endif; ?>
         </div>
         <?php
+    }
+
+    private function channel_label(string $channel): string
+    {
+        $labels = [
+            'website' => __('Website', 'engage-ai'),
+            'google_business' => __('Google Business', 'engage-ai'),
+            'youtube' => __('YouTube', 'engage-ai'),
+            'facebook' => __('Facebook', 'engage-ai'),
+            'instagram' => __('Instagram', 'engage-ai'),
+            'linkedin' => __('LinkedIn', 'engage-ai'),
+            'twitter_x' => __('X / Twitter', 'engage-ai'),
+            'news_mentions' => __('News mentions', 'engage-ai'),
+            'website_post' => __('Website', 'engage-ai'),
+        ];
+        return $labels[$channel] ?? ucwords(str_replace('_', ' ', $channel));
     }
 
     private function render_notice(): void
