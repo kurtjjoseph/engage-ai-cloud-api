@@ -17,6 +17,10 @@ services:
         generateValue: true
       - key: OPENAI_API_KEY
         sync: false
+      # Point imageio at the system ffmpeg installed in the Dockerfile, so it
+      # never tries to download its own binary at runtime (video assembly).
+      - key: IMAGEIO_FFMPEG_EXE
+        value: /usr/bin/ffmpeg
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ANTHROPIC_MODEL

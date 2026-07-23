@@ -14,12 +14,13 @@ from app.services.content_ideas import (
     content_types_catalog,
     default_type_for,
 )
-from app.services.media_gen import ImageGenService
+from app.services.media_gen import ImageGenService, VideoGenService
 
 router = APIRouter(prefix="/content", tags=["content"])
 
 content_ideas = ContentIdeaService()
 image_gen = ImageGenService()
+video_gen = VideoGenService(image_gen)
 
 
 class PackRequest(BaseModel):
@@ -216,6 +217,39 @@ def generate_content_image(
     db.refresh(asset)
     output = dict(item.output_payload or {})
     output["image_asset_id"] = asset.id
+    item.output_payload = output
+    db.commit()
+    return {"asset_id": asset.id, "url": f"/content/asset/{asset.id}", "mime": mime}
+
+
+@router.post("/{content_id}/video")
+def generate_content_video(
+    content_id: int,
+    organization_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Assembles a short captioned video from a piece's stored video_plan -
+    generates a still per scene, burns in the caption, and stitches to MP4.
+    Keyless and reliable (no premium video model)."""
+    org = get_owned_org(organization_id, db, user)
+    item = db.query(ContentItem).filter(ContentItem.id == content_id, ContentItem.organization_id == org.id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Content not found.")
+    plan = (item.output_payload or {}).get("video_plan")
+    if not isinstance(plan, dict) or not plan.get("scenes"):
+        raise HTTPException(status_code=400, detail="This content has no video plan to assemble.")
+    result = video_gen.assemble(plan)
+    if not result:
+        raise HTTPException(status_code=502, detail="Video assembly failed - try again.")
+    data, mime = result
+    asset = MediaAsset(organization_id=org.id, content_item_id=item.id, kind="video", mime=mime,
+                       prompt=(plan.get("voiceover") or item.title), data=data)
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+    output = dict(item.output_payload or {})
+    output["video_asset_id"] = asset.id
     item.output_payload = output
     db.commit()
     return {"asset_id": asset.id, "url": f"/content/asset/{asset.id}", "mime": mime}

@@ -202,6 +202,15 @@ class EngageAI_Api_Client
     }
 
     /**
+     * Assembles a short captioned video from a content piece's stored plan.
+     * @return array|WP_Error {asset_id, url, mime}
+     */
+    public function generate_content_video(int $org_id, int $content_id)
+    {
+        return $this->request('POST', '/content/' . $content_id . '/video?organization_id=' . $org_id, null, true, 180);
+    }
+
+    /**
      * Fetches a generated media asset's raw bytes (for saving into the WP media
      * library). Bypasses the JSON decode in request().
      * @return array|WP_Error ['body' => string bytes, 'mime' => string]

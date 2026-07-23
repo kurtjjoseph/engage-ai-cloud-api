@@ -269,6 +269,56 @@ def test_generate_image_stores_and_serves_asset(client, db_session, monkeypatch)
     assert served.headers["content-type"].startswith("image/png")
 
 
+class _FakeVideoGen:
+    def __init__(self, result):
+        self._result = result
+
+    def assemble(self, video_plan, **kwargs):
+        return self._result
+
+
+def test_generate_video_stores_and_serves_mp4(client, db_session, monkeypatch):
+    user, org = _seed(db_session, site_type="church")
+    client._holder["user"] = user
+    plan = {"scenes": [{"caption": "hi", "image_prompt": "a church"}], "voiceover": "vo"}
+    item = ContentItem(organization_id=org.id, content_type="youtube", title="Short",
+                       input_payload={}, output_payload={"media": "video", "video_plan": plan})
+    db_session.add(item)
+    db_session.commit()
+    db_session.refresh(item)
+    mp4 = b"\x00\x00\x00\x18ftypmp42FAKE"
+    monkeypatch.setattr(content_router, "video_gen", _FakeVideoGen((mp4, "video/mp4")))
+
+    resp = client.post(f"/content/{item.id}/video?organization_id={org.id}")
+    assert resp.status_code == 200
+    asset_id = resp.json()["asset_id"]
+    db_session.refresh(item)
+    assert item.output_payload["video_asset_id"] == asset_id
+    served = client.get(f"/content/asset/{asset_id}")
+    assert served.status_code == 200
+    assert served.content == mp4
+    assert served.headers["content-type"].startswith("video/mp4")
+
+
+def test_generate_video_400_without_plan(client, db_session):
+    user, org = _seed(db_session, site_type="church")
+    client._holder["user"] = user
+    item = ContentItem(organization_id=org.id, content_type="youtube", title="Short",
+                       input_payload={}, output_payload={"media": "video"})  # no video_plan
+    db_session.add(item)
+    db_session.commit()
+    db_session.refresh(item)
+    resp = client.post(f"/content/{item.id}/video?organization_id={org.id}")
+    assert resp.status_code == 400
+
+
+def test_image_gen_service_enabled_without_key():
+    # The service is always "enabled" now: a keyless fallback is available even
+    # with no OPENAI_API_KEY, so image generation never hard-fails on config.
+    from app.services.media_gen import ImageGenService
+    assert ImageGenService().enabled is True
+
+
 def test_asset_404_for_unowned(client, db_session):
     from app.models.entities import MediaAsset
     owner, org = _seed(db_session, site_type="business")

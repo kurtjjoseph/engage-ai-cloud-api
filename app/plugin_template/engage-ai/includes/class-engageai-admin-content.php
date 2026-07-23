@@ -36,6 +36,7 @@ class EngageAI_Admin_Content
         add_action('admin_post_engageai_draft_content', [$this, 'handle_draft']);
         add_action('admin_post_engageai_generate_pack', [$this, 'handle_pack']);
         add_action('admin_post_engageai_generate_image', [$this, 'handle_generate_image']);
+        add_action('admin_post_engageai_generate_video', [$this, 'handle_generate_video']);
     }
 
     public function handle_pack(): void
@@ -85,6 +86,32 @@ class EngageAI_Admin_Content
         $this->redirect(['image' => (int) $attachment_id]);
     }
 
+    public function handle_generate_video(): void
+    {
+        if (!current_user_can('manage_options') || !check_admin_referer('engageai_generate_video')) {
+            wp_die(esc_html__('You are not allowed to do this.', 'engage-ai'));
+        }
+        $org_id = $this->client->get_organization_id();
+        $content_id = (int) ($_POST['content_id'] ?? 0);
+        if (!$org_id || !$content_id) {
+            $this->redirect(['error' => 'not_ready']);
+        }
+        $res = $this->client->generate_content_video((int) $org_id, $content_id);
+        if (is_wp_error($res)) {
+            $this->redirect(['error' => rawurlencode($res->get_error_message())]);
+        }
+        $asset_id = (int) ($res['asset_id'] ?? 0);
+        $bytes = $asset_id ? $this->client->get_asset_bytes((int) $org_id, $asset_id) : new WP_Error('engageai_no_asset', __('No video was returned.', 'engage-ai'));
+        if (is_wp_error($bytes)) {
+            $this->redirect(['error' => rawurlencode($bytes->get_error_message())]);
+        }
+        $attachment_id = $this->save_to_media_library($bytes['body'], $bytes['mime'] ?: 'video/mp4', 'engage-ai-video-' . $content_id . '-' . $asset_id);
+        if (is_wp_error($attachment_id)) {
+            $this->redirect(['error' => rawurlencode($attachment_id->get_error_message())]);
+        }
+        $this->redirect(['video' => (int) $attachment_id]);
+    }
+
     /**
      * Saves generated image bytes into the WordPress Media Library so the image
      * is usable (as a featured image, in a post, etc.) with a normal WP URL.
@@ -95,7 +122,8 @@ class EngageAI_Admin_Content
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/media.php';
         require_once ABSPATH . 'wp-admin/includes/image.php';
-        $ext = $mime === 'image/jpeg' ? 'jpg' : 'png';
+        $ext_by_mime = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'video/mp4' => 'mp4'];
+        $ext = $ext_by_mime[$mime] ?? 'png';
         $upload = wp_upload_bits($slug . '.' . $ext, null, $bytes);
         if (!empty($upload['error'])) {
             return new WP_Error('engageai_upload_failed', $upload['error']);
@@ -344,8 +372,17 @@ class EngageAI_Admin_Content
                                                 <button type="submit" class="button"><?php esc_html_e('Generate image', 'engage-ai'); ?></button>
                                             </form>
                                         <?php endif; ?>
-                                    <?php elseif ($media === 'video'): ?>
-                                        <span class="description"><?php esc_html_e('Use the plan to record/assemble', 'engage-ai'); ?></span>
+                                    <?php elseif ($media === 'video' && is_array($video_plan) && !empty($video_plan['scenes'])): ?>
+                                        <?php if (!empty($out['video_asset_id'])): ?>
+                                            <span class="description"><?php esc_html_e('Video assembled ✓ (Media Library)', 'engage-ai'); ?></span>
+                                        <?php else: ?>
+                                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                                <input type="hidden" name="action" value="engageai_generate_video">
+                                                <input type="hidden" name="content_id" value="<?php echo esc_attr((string) $id); ?>">
+                                                <?php wp_nonce_field('engageai_generate_video'); ?>
+                                                <button type="submit" class="button"><?php esc_html_e('Generate video', 'engage-ai'); ?></button>
+                                            </form>
+                                        <?php endif; ?>
                                     <?php elseif (!$is_website_post): ?>
                                         <span class="description"><?php esc_html_e('Copy & post', 'engage-ai'); ?></span>
                                     <?php endif; ?>
@@ -386,14 +423,15 @@ class EngageAI_Admin_Content
                     (int) $_GET['suggested']
                 ))
             );
-        } elseif (isset($_GET['image'])) {
-            $att = (int) $_GET['image'];
+        } elseif (isset($_GET['image']) || isset($_GET['video'])) {
+            $is_video = isset($_GET['video']);
+            $att = (int) ($_GET[$is_video ? 'video' : 'image']);
             $url = wp_get_attachment_url($att);
             printf(
                 '<div class="notice notice-success is-dismissible"><p>%s <a href="%s" target="_blank" rel="noopener">%s</a></p></div>',
-                esc_html__('Image generated and saved to your Media Library.', 'engage-ai'),
+                esc_html($is_video ? __('Video assembled and saved to your Media Library.', 'engage-ai') : __('Image generated and saved to your Media Library.', 'engage-ai')),
                 esc_url($url ?: admin_url('upload.php')),
-                esc_html__('View image →', 'engage-ai')
+                esc_html($is_video ? __('View video →', 'engage-ai') : __('View image →', 'engage-ai'))
             );
         } elseif (isset($_GET['drafted'])) {
             $edit = get_edit_post_link((int) $_GET['drafted'], '');
