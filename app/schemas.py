@@ -136,7 +136,9 @@ class ContentOut(BaseModel):
     id: int
     content_type: str
     title: str
+    input_payload: dict | None = None
     output_payload: dict
+    created_at: datetime | None = None
 
     class Config:
         from_attributes = True

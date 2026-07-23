@@ -146,13 +146,37 @@ class EngageAI_Api_Client
      * find still scores its real presence and content instead of 0.
      * @return array|WP_Error
      */
-    public function report_site(int $org_id, int $published_posts, int $published_pages)
+    public function report_site(int $org_id, int $published_posts, int $published_pages, string $site_type = '')
     {
-        return $this->request('POST', '/organizations/' . $org_id . '/site-report', [
+        $body = [
             'website_present' => true,
             'published_posts' => $published_posts,
             'published_pages' => $published_pages,
-        ]);
+        ];
+        if ($site_type !== '') {
+            $body['site_type'] = $site_type;
+        }
+        return $this->request('POST', '/organizations/' . $org_id . '/site-report', $body);
+    }
+
+    /**
+     * Generated/tracked content for this org, most recent first.
+     * @return array|WP_Error list of ContentItem (id, content_type, title, output_payload, ...)
+     */
+    public function get_content(int $org_id)
+    {
+        return $this->request('GET', '/content?organization_id=' . $org_id);
+    }
+
+    /**
+     * Asks the API to draft a few website posts tailored to this site's type
+     * (see site-report's site_type). Saved as tracked content and returned.
+     * Backed by an LLM call, so give it the longer timeout.
+     * @return array|WP_Error list of the newly-suggested ContentItems
+     */
+    public function suggest_content(int $org_id, int $count = 3)
+    {
+        return $this->request('POST', '/content/suggest?organization_id=' . $org_id . '&count=' . $count, null, true, 120);
     }
 
     /**

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.15.0
+ * Version: 0.16.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.15.0');
+define('ENGAGEAI_VERSION', '0.16.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -24,6 +24,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-analytics.php'
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-cycle.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-dashboard.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-assistant.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-content.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-cron.php';
 
 /**
@@ -88,6 +89,7 @@ final class EngageAI_Plugin
         EngageAI_Admin_Cycle::instance()->register_hooks();
         EngageAI_Admin_Dashboard::instance()->register_hooks();
         EngageAI_Admin_Assistant::instance()->register_hooks();
+        EngageAI_Admin_Content::instance()->register_hooks();
     }
 
     public function register_admin_menu(): void
@@ -118,6 +120,15 @@ final class EngageAI_Plugin
             'manage_options',
             'engageai-generate',
             [EngageAI_Admin_Generate::instance(), 'render_page']
+        );
+
+        add_submenu_page(
+            'engageai-dashboard',
+            __('Content', 'engage-ai'),
+            __('Content', 'engage-ai'),
+            'manage_options',
+            'engageai-content',
+            [EngageAI_Admin_Content::instance(), 'render_page']
         );
 
         add_submenu_page(
@@ -232,7 +243,32 @@ final class EngageAI_Plugin
         }
         $posts = (int) (wp_count_posts('post')->publish ?? 0);
         $pages = (int) (wp_count_posts('page')->publish ?? 0);
-        $client->report_site($org_id, $posts, $pages);
+        $client->report_site($org_id, $posts, $pages, self::detect_site_type());
+    }
+
+    /**
+     * Best-guess of what kind of WordPress site this is, so content
+     * suggestions can be tailored to it: an active WooCommerce install is an
+     * "ecommerce" site; a church-type org is "church"; everything else defaults
+     * to "business". Deliberately simple and safe - a wrong guess just yields
+     * generically-useful posts, and the operator can refine later.
+     */
+    public static function detect_site_type(): string
+    {
+        if (class_exists('WooCommerce') || function_exists('WC')) {
+            return 'ecommerce';
+        }
+        $client = new EngageAI_Api_Client();
+        $orgs = $client->get_organizations();
+        $org_id = $client->get_organization_id();
+        if (!is_wp_error($orgs) && $org_id) {
+            foreach ($orgs as $o) {
+                if ((int) ($o['id'] ?? 0) === (int) $org_id && ($o['org_type'] ?? '') === 'church') {
+                    return 'church';
+                }
+            }
+        }
+        return 'business';
     }
 
     /**

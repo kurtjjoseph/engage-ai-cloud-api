@@ -167,6 +167,10 @@ class SiteReport(BaseModel):
     website_present: bool = True
     published_posts: int | None = None
     published_pages: int | None = None
+    # What kind of site this is, detected by the plugin (e.g. "ecommerce" when
+    # WooCommerce is active, "church" for a church org, else "business"). Drives
+    # site-type-tailored content suggestions (services/content_ideas.py).
+    site_type: str | None = None
 
 
 @router.post("/{org_id}/site-hello")
@@ -226,11 +230,15 @@ def site_report(org_id: int, payload: SiteReport, db: Session = Depends(get_db),
     from datetime import datetime
 
     org = get_owned_org(org_id, db, user)
-    org.site_facts = {
+    facts = dict(org.site_facts or {})
+    facts.update({
         "website_present": bool(payload.website_present),
         "published_posts": payload.published_posts,
         "published_pages": payload.published_pages,
         "reported_at": datetime.utcnow().isoformat(),
-    }
+    })
+    if payload.site_type:
+        facts["site_type"] = payload.site_type.strip().lower()
+    org.site_facts = facts
     db.commit()
     return {"ok": True, "site_facts": org.site_facts}
