@@ -37,6 +37,9 @@
   .btn.ghost{background:none;border:1px solid var(--line);color:var(--ink);width:auto;padding:7px 13px;font-weight:500}
   .btn.ghost.danger{border-color:var(--bad);color:var(--bad)}
   .btn.ghost.danger:hover{background:var(--bad-soft)}
+  .btn.ghost.primary{border-color:var(--accent);color:var(--accent)}
+  .btn.ghost.primary:hover{background:var(--accent-soft)}
+  .lnk.scan-run{cursor:pointer}
   .btn.ghost:disabled{opacity:.55;cursor:default}
   .panel.setup{border-color:var(--accent);background:var(--accent-soft)}
   .panel.setup h3{color:var(--accent)}
@@ -316,7 +319,8 @@
     ].map(function(x){ return '<div class="tile"><div class="k">'+x[0]+'</div><div class="v">'+esc(x[1])+'</div><div class="d">'+esc(x[2])+'</div></div>'; }).join("");
 
     var rows=d.sites.map(function(s){
-      var links=(s.front_url?'<a class="lnk" href="'+esc(s.front_url)+'" target="_blank" rel="noopener">site ↗</a>':'')
+      var links=(s.analytics_enabled?'<a class="lnk scan-run" href="#" data-id="'+s.id+'">run scan</a>':'')
+              +(s.front_url?'<a class="lnk" href="'+esc(s.front_url)+'" target="_blank" rel="noopener">site ↗</a>':'')
               +(s.wp_admin_url?'<a class="lnk" href="'+esc(s.wp_admin_url)+'" target="_blank" rel="noopener">wp-admin ↗</a>':'');
       var status=!s.analytics_enabled?'<span class="chip dim">no analytics</span>'
                 :s.org_score==null?'<span class="chip dim">no scan yet</span>'
@@ -352,7 +356,24 @@
     Array.prototype.forEach.call(el("main").querySelectorAll(".site-name"),function(n){
       n.addEventListener("click",function(){ location.hash="#/site/"+n.getAttribute("data-id"); });
     });
+    Array.prototype.forEach.call(el("main").querySelectorAll(".scan-run"),function(a){
+      a.addEventListener("click",function(e){
+        e.preventDefault();
+        if(a.dataset.busy) return;
+        a.dataset.busy="1"; a.textContent="starting…";
+        startScan(a.getAttribute("data-id")).then(function(){ route(true); })
+          .catch(function(err){ toast(err.message); a.dataset.busy=""; a.textContent="run scan"; });
+      });
+    });
     if(lastFetch) el("liveLabel").textContent="live · updated just now";
+  }
+
+  // Launches a full-sweep scan (all 8 channels) for a site the operator owns.
+  // The API returns a pending snapshot immediately and fills it in channel by
+  // channel; callers refresh to watch it land.
+  function startScan(id){
+    return api("/organizations/"+id+"/analytics/scan",{method:"POST"})
+      .then(function(snap){ toast("Scan started — filling in live"); return snap; });
   }
 
   /* ================= DETAIL ================= */
@@ -406,6 +427,7 @@
       '<div class="backrow"><button class="btn ghost" id="backBtn" type="button">← All sites</button>'
         +(d.front_url?'<a class="btn ghost" href="'+esc(d.front_url)+'" target="_blank" rel="noopener">Open site ↗</a>':'')
         +(d.wp_admin_url?'<a class="btn ghost" href="'+esc(d.wp_admin_url)+'" target="_blank" rel="noopener">wp-admin ↗</a>':'')
+        +(d.analytics_enabled?'<button class="btn ghost primary" id="scanBtn" type="button">↻ Run scan</button>':'')
         +'<span class="spacer"></span>'
         +'<button class="btn ghost danger" id="deleteBtn" type="button">Delete site</button>'
       +'</div>'
@@ -472,6 +494,13 @@
 
     el("detail").innerHTML=head+body;
     el("backBtn").addEventListener("click",function(){ location.hash="#/"; });
+    var scanBtn=el("scanBtn");
+    if(scanBtn) scanBtn.addEventListener("click",function(){
+      scanBtn.disabled=true; var prev=scanBtn.textContent; scanBtn.textContent="Starting…";
+      startScan(d.id)
+        .then(function(){ loadDetail(d.id); })
+        .catch(function(err){ toast(err.message); scanBtn.disabled=false; scanBtn.textContent=prev; });
+    });
     el("deleteBtn").addEventListener("click",function(){
       if(!confirm('Delete "'+d.name+'"? This permanently removes the site and all its scans, agent runs and publications. This cannot be undone.')) return;
       api("/organizations/"+d.id,{method:"DELETE"})
