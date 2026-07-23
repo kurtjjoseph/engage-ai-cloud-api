@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.12.0
+ * Version: 0.13.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.12.0');
+define('ENGAGEAI_VERSION', '0.13.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -69,6 +69,10 @@ final class EngageAI_Plugin
     {
         add_action('admin_menu', [$this, 'register_admin_menu']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+        // First-run check-in: report this site's home URL to the API once, so
+        // the console can link to the live site and any duplicate org record
+        // gets merged. Cheap no-op after the first success (option guard).
+        add_action('admin_init', [$this, 'maybe_hello_site']);
         add_action(EngageAI_Cron::HOOK, [EngageAI_Cron::class, 'run']);
         // Activation hooks don't fire on a self-update (Plugin Update
         // Checker replaces the files without deactivating/reactivating), so
@@ -174,6 +178,40 @@ final class EngageAI_Plugin
             [],
             ENGAGEAI_VERSION
         );
+    }
+
+    /**
+     * Reports this site's home_url to the API exactly once, the first time an
+     * admin loads any wp-admin page while the plugin is connected. Lets the
+     * console show a live link to the site and lets the API fold this org into
+     * an existing record for the same site if the operator had already created
+     * one (see POST /organizations/{id}/site-hello). Guarded by an option so
+     * it's a no-op on every later page load; runs on update too, since an
+     * already-installed site won't have the flag set yet.
+     */
+    public function maybe_hello_site(): void
+    {
+        if (get_option('engageai_site_synced')) {
+            return;
+        }
+
+        $client = new EngageAI_Api_Client();
+        $org_id = $client->get_organization_id();
+        if (!$client->is_connected() || !$org_id) {
+            return; // not connected yet - try again on a later page load
+        }
+
+        $result = $client->hello_site((int) $org_id, home_url('/'), admin_url());
+        if (is_wp_error($result)) {
+            return; // leave the flag unset so it retries next time
+        }
+
+        // The API may have merged this org into a pre-existing one for the same
+        // site; if so, repoint this install at the surviving org id.
+        if (!empty($result['organization_id']) && (int) $result['organization_id'] !== (int) $org_id) {
+            $client->set_organization_id((int) $result['organization_id']);
+        }
+        update_option('engageai_site_synced', 1, false);
     }
 
     /**

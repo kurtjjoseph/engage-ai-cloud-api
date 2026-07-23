@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.12.0
+Stable tag: 0.13.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -29,6 +29,9 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 6. Go to Engage AI > Generate Content for the church-engagement generators, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.13.0 =
+* On first run the plugin now reports its site URL to the API, so the operator console can link straight to the live site and, if the same site had already been added in the console, the two records are merged automatically instead of tracking the site twice.
 
 = 0.12.0 =
 * The engagement_growth agent niche can now generate AND publish autonomously for one specific case: a "content_idea" ticket targeting the "website" channel lands straight in WordPress as a draft post, with no approval wait - a draft is fully reversible (nothing is public until you publish it live), unlike every other channel this plugin doesn't have a real publish integration for yet. Runs hourly via WP-Cron.

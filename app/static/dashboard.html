@@ -35,6 +35,11 @@
   input:focus{outline:2px solid var(--accent);outline-offset:0}
   .btn{background:var(--accent);color:var(--accent-ink);border:none;border-radius:8px;padding:10px 16px;font-weight:600;width:100%}
   .btn.ghost{background:none;border:1px solid var(--line);color:var(--ink);width:auto;padding:7px 13px;font-weight:500}
+  .btn.ghost.danger{border-color:var(--bad);color:var(--bad)}
+  .btn.ghost.danger:hover{background:var(--bad-soft)}
+  .btn.ghost:disabled{opacity:.55;cursor:default}
+  .panel.setup{border-color:var(--accent);background:var(--accent-soft)}
+  .panel.setup h3{color:var(--accent)}
   .err{color:var(--bad);font-size:12.5px;margin-top:10px;min-height:16px}
   .authlinks{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px}
 
@@ -194,6 +199,19 @@
       if(r.status===401){ logout(); throw new Error("Session expired - sign in again."); }
       if(!r.ok) return r.text().then(function(t){ throw new Error(t||("HTTP "+r.status)); });
       return r.json();
+    });
+  }
+
+  function download(path,filename){
+    var headers={}; if(token) headers["Authorization"]="Bearer "+token;
+    return fetch(path,{headers:headers}).then(function(r){
+      if(r.status===401){ logout(); throw new Error("Session expired - sign in again."); }
+      if(!r.ok) return r.text().then(function(t){ throw new Error(t||("HTTP "+r.status)); });
+      return r.blob();
+    }).then(function(blob){
+      var url=URL.createObjectURL(blob), a=document.createElement("a");
+      a.href=url; a.download=filename||"download"; document.body.appendChild(a); a.click();
+      a.remove(); setTimeout(function(){ URL.revokeObjectURL(url); },4000);
     });
   }
 
@@ -386,6 +404,8 @@
       '<div class="backrow"><button class="btn ghost" id="backBtn" type="button">← All sites</button>'
         +(d.front_url?'<a class="btn ghost" href="'+esc(d.front_url)+'" target="_blank" rel="noopener">Open site ↗</a>':'')
         +(d.wp_admin_url?'<a class="btn ghost" href="'+esc(d.wp_admin_url)+'" target="_blank" rel="noopener">wp-admin ↗</a>':'')
+        +'<span class="spacer"></span>'
+        +'<button class="btn ghost danger" id="deleteBtn" type="button">Delete site</button>'
       +'</div>'
       +'<div class="detail-head"><div><h1>'+esc(d.name)+'</h1>'
         +'<div class="meta">'+esc(d.org_type||"")+(d.website_url?' · '+esc(d.website_url):"")
@@ -402,6 +422,16 @@
     head+='</div></div>';
 
     var body="";
+    // No scans and no agent activity yet = the plugin hasn't checked in on this
+    // site. Surface a pre-connected plugin download so the operator can install
+    // it on the WordPress site and it wires itself up to this exact org.
+    var hasRuns=(d.scans&&d.scans.length)||(d.agent_runs&&d.agent_runs.length);
+    if(!hasRuns){
+      body+='<div class="panel setup"><h3>Install the plugin</h3>'
+        +'<p class="sub" style="margin:0 0 12px">No activity yet on this site. Download the Engage AI plugin below — it comes pre-connected to <strong>'+esc(d.name)+'</strong>, so on this WordPress site you just install it and activate. No settings to fill in.</p>'
+        +'<button class="btn ghost" id="dlPluginBtn" type="button">↓ Download plugin for this site</button>'
+        +'<span class="sub" style="margin-left:12px">or the generic <a href="/plugin/download.zip">plugin zip ↗</a></span></div>';
+    }
     if(ins){
       var kpis=(ins.ranking||[]).map(function(r){
         var badge=r.stale?'<span class="badge" style="background:var(--warn-soft);color:var(--warn)">stale</span>'
@@ -435,6 +465,20 @@
 
     el("detail").innerHTML=head+body;
     el("backBtn").addEventListener("click",function(){ location.hash="#/"; });
+    el("deleteBtn").addEventListener("click",function(){
+      if(!confirm('Delete "'+d.name+'"? This permanently removes the site and all its scans, agent runs and publications. This cannot be undone.')) return;
+      api("/organizations/"+d.id,{method:"DELETE"})
+        .then(function(){ toast('Deleted "'+d.name+'"'); location.hash="#/"; route(true); })
+        .catch(function(err){ toast(err.message); });
+    });
+    var dl=el("dlPluginBtn");
+    if(dl) dl.addEventListener("click",function(){
+      dl.disabled=true; var prev=dl.textContent; dl.textContent="Preparing…";
+      download("/organizations/"+d.id+"/plugin.zip","engage-ai.zip")
+        .then(function(){ toast("Plugin download started"); })
+        .catch(function(err){ toast(err.message); })
+        .then(function(){ dl.disabled=false; dl.textContent=prev; });
+    });
     Array.prototype.forEach.call(el("detail").querySelectorAll(".scan-row"),function(r){
       r.addEventListener("click",function(){ location.hash="#/site/"+d.id+"/scan/"+r.getAttribute("data-sid"); });
     });

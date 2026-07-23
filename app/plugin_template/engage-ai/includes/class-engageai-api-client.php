@@ -122,6 +122,23 @@ class EngageAI_Api_Client
     }
 
     /**
+     * First-run check-in: tells the API where this plugin is actually
+     * installed (home_url) so the operator's console can link straight to the
+     * live site, and lets the API merge this org with any duplicate record it
+     * already had for the same site. Returns {organization_id, merged, ...} -
+     * organization_id is the id this site should use going forward (may differ
+     * from $org_id if a merge happened).
+     * @return array|WP_Error
+     */
+    public function hello_site(int $org_id, string $home_url, string $admin_url = '')
+    {
+        return $this->request('POST', '/organizations/' . $org_id . '/site-hello', [
+            'home_url' => $home_url,
+            'admin_url' => $admin_url !== '' ? $admin_url : null,
+        ]);
+    }
+
+    /**
      * @param string[] $channels empty = full sweep, otherwise scopes the scan (e.g. ["website"])
      * @param bool $include_pages adds a per-page visibility ranking to the website channel - costs more
      * @return array|WP_Error
