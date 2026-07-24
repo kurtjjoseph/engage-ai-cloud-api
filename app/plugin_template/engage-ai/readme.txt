@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.20.0
+Stable tag: 0.21.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -29,6 +29,14 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 6. Go to Engage AI > Generate Content for the church-engagement generators, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.21.0 =
+* New Content Studio - content creation rebuilt as a workflow you can steer instead of one button and a wall of output. It runs in passes: pick the business goal, choose from competing ideas, shape the copy, read the quality check, make the media, publish. Every pass is its own screen, so you can change the format, rewrite a line, or send a draft back for another pass at any point, and a half-built piece can be left and picked up later.
+* Three content types that render reliably, every time, with no API key: a post with an image; an image with your headline set on it (auto-sized so it always fits and always stays legible); and an 8-second vertical video - four slides, two seconds each, your narration centred on screen over a slow zoom with cross-fades. Sized automatically to each channel (Instagram 4:5, X 16:9, website landscape, video 9:16).
+* The quality check is real: it measures every draft against the channel's actual limits and fixes what it can mechanically (over-long copy, too many hashtags, hashtags on channels that don't take them, an on-image headline too long to read, missing alt text, over-long narration). What's left - placeholder text, a missing call to action when the goal needs one, too few slides - is listed with a one-click "have the AI fix these".
+* Media now renders in the background and lands in your Media Library on its own, so a slow image or a full video no longer times out the page. Website pieces publish as a WordPress draft with the generated image already set as the featured image.
+* Fixed: "Generate image" and "Generate video" on the Content page fetched the wrong asset and could fail to save the file into your Media Library.
+* The old Content page is now Content Library - the log of everything created, unchanged.
 
 = 0.20.0 =
 * Image and video generation now work out of the box - no API key required. "Generate image" creates a real image and saves it straight to your Media Library using a built-in generator (add an OpenAI API key anytime to upgrade the quality). "Generate video" assembles a short captioned video from the storyboard - a still per scene with the caption burned in, stitched into an MP4 - and saves it to your Media Library, ready to post to YouTube, Reels, or anywhere.

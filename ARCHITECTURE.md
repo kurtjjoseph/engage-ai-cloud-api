@@ -100,6 +100,20 @@ Real GA/Search Console integration (actual traffic data) was explicitly deferred
 
 **Verified against a real scan** (Anthropic's site, `channels=website&include_pages=true`): 12 real pages discovered and ranked (homepage, newsroom, careers, research, pricing, product pages, policy pages), each with real signals and notes, third-party traffic estimates correctly attributed and flagged as non-authoritative ("Semrush ~27M/mo vs. instantdomainsearch ~484K/mo... treated as rough estimates"), `requested_channels` correctly scoped to `["website"]` only.
 
+### 3.9 Content Studio: a multi-pass content workflow, and only three renderable formats
+
+Motivated by the previous content flow being one button that returned a wall of output the operator could neither steer nor trust. Restructured into passes, each its own endpoint and its own screen (`services/studio.py`, `routers/studio.py`, plugin `class-engageai-admin-studio.php`): **goal → idea → copy → quality check → media → publish**. State lives on the `ContentItem` (`output_payload["studio"]`), flattened onto the same `body`/`hashtags`/`image_prompt`/`website_post` fields the older Content library already reads, so a half-built piece survives a reload and nothing else had to learn about the studio.
+
+**Three formats, not thirty** (`services/studio_formats.py`): `post_image`, `image_text` (headline set on the image), `video_slideshow` (8s, 4 slides × 2s, narration centred). The constraint driving the number is that each one has a deterministic local renderer, so each can be *guaranteed* to produce a file. A `Layout` (the intersection of channel and format) is the single contract shared by all three passes that could otherwise disagree: it shapes the drafting prompt, it is what the quality check measures against, and it is the canvas the renderer paints on.
+
+**The quality check is deterministic first** (`StudioService.check`). Length, hashtag count, missing alt text, on-image headline length, slide count and placeholder text are all measurable, so they get measured - and mostly repaired - without spending a model call. Only what needs judgement (a missing call to action for a goal that requires one, placeholder text, too few slides) is escalated to an AI rewrite pass, which is then re-checked so the stored report always describes what is actually stored.
+
+**Rendering is keyless and cannot hard-fail** (`services/media_gen.StudioRenderer`). Backgrounds try OpenAI (if a key exists), then the keyless generator, then a shortened-prompt retry, then a locally-built deterministic gradient keyed to the prompt's hash - designed to look intentional rather than broken. All typography is composited locally with Pillow, so text on an image is exact and legible rather than subject to a model's spelling.
+
+**Why renders are background jobs.** Measured, not assumed: the keyless generator's latency is queue time (~20-45s, the same for any size or model), and it serves one request at a time - four concurrent requests returned three HTTP 429s and one image. So parallelism is off the table, a 4-slide video needs ~3 minutes of fetching, and no sensible HTTP timeout covers it. `POST /studio/{id}/render` therefore returns `running` immediately and the plugin polls `GET /studio/{id}/render` (the same pattern as analytics scans), with a total fetch budget in `generate_many` and a slow per-slide zoom so a render that runs out of budget can reuse a background without the video reading as a repeat. A render stuck `running` past 15 minutes is reported failed, because background tasks don't survive a redeploy and a permanent spinner is worse than a retry button.
+
+**Verified end to end with no OpenAI key**: all three formats rendered through the real API surface (1080×1080 image, 1080×1350 text graphic, and a 720×1280 MP4 measured at exactly 192 frames @ 24fps = 8.00s).
+
 ## 4. Deployment scaffolding
 
 `render.yaml` is the active deploy path (see §3.3). The `Dockerfile` and `docker-compose.yml` remain useful for local development (`docker compose up`).

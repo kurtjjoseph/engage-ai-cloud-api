@@ -75,7 +75,7 @@ class EngageAI_Admin_Content
             $this->redirect(['error' => rawurlencode($res->get_error_message())]);
         }
         $asset_id = (int) ($res['asset_id'] ?? 0);
-        $bytes = $asset_id ? $this->client->get_asset_bytes((int) $org_id, $asset_id) : new WP_Error('engageai_no_asset', __('No image was returned.', 'engage-ai'));
+        $bytes = $asset_id ? $this->client->get_asset_bytes($asset_id) : new WP_Error('engageai_no_asset', __('No image was returned.', 'engage-ai'));
         if (is_wp_error($bytes)) {
             $this->redirect(['error' => rawurlencode($bytes->get_error_message())]);
         }
@@ -101,7 +101,7 @@ class EngageAI_Admin_Content
             $this->redirect(['error' => rawurlencode($res->get_error_message())]);
         }
         $asset_id = (int) ($res['asset_id'] ?? 0);
-        $bytes = $asset_id ? $this->client->get_asset_bytes((int) $org_id, $asset_id) : new WP_Error('engageai_no_asset', __('No video was returned.', 'engage-ai'));
+        $bytes = $asset_id ? $this->client->get_asset_bytes($asset_id) : new WP_Error('engageai_no_asset', __('No video was returned.', 'engage-ai'));
         if (is_wp_error($bytes)) {
             $this->redirect(['error' => rawurlencode($bytes->get_error_message())]);
         }

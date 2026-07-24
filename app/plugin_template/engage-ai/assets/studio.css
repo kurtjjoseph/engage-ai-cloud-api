@@ -1,0 +1,592 @@
+/*
+ * Content Studio design system.
+ *
+ * Deliberately scoped to .engageai-studio so it never leaks into the rest of
+ * wp-admin, and deliberately opinionated: WordPress admin chrome is dense, and
+ * a creative workflow reads better with room around it. Everything here is
+ * built from a small set of tokens - one ink colour, one muted, one line, one
+ * radius scale - so the whole page stays quiet and the content is the loudest
+ * thing on it.
+ */
+
+.engageai-studio {
+    --eas-ink: #0f172a;
+    --eas-muted: #64748b;
+    --eas-faint: #94a3b8;
+    --eas-line: #e5e7eb;
+    --eas-surface: #ffffff;
+    --eas-canvas: #f8fafc;
+    --eas-accent: #111827;
+    --eas-ok: #047857;
+    --eas-ok-bg: #ecfdf5;
+    --eas-warn: #b45309;
+    --eas-warn-bg: #fffbeb;
+    --eas-bad: #b91c1c;
+    --eas-bad-bg: #fef2f2;
+    --eas-radius: 14px;
+    --eas-radius-sm: 10px;
+
+    max-width: 980px;
+    margin: 0 24px 80px 0;
+    color: var(--eas-ink);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+.engageai-studio *,
+.engageai-studio *::before,
+.engageai-studio *::after {
+    box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------- masthead */
+.eas-masthead {
+    padding: 34px 0 26px;
+}
+
+.eas-masthead h1 {
+    margin: 0 0 6px;
+    font-size: 30px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    padding: 0;
+}
+
+.eas-masthead p {
+    margin: 0;
+    max-width: 62ch;
+    color: var(--eas-muted);
+    font-size: 15px;
+}
+
+/* ----------------------------------------------------------------- stepper */
+.eas-steps {
+    display: flex;
+    gap: 6px;
+    margin: 0 0 40px;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--eas-line);
+    padding-top: 18px;
+}
+
+.eas-step {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    color: var(--eas-faint);
+}
+
+.eas-step__num {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1px solid var(--eas-line);
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--eas-surface);
+}
+
+.eas-step__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.eas-step.is-current {
+    color: var(--eas-ink);
+    font-weight: 600;
+}
+
+.eas-step.is-current .eas-step__num {
+    background: var(--eas-accent);
+    border-color: var(--eas-accent);
+    color: #fff;
+}
+
+.eas-step.is-done {
+    color: var(--eas-muted);
+}
+
+.eas-step.is-done .eas-step__num {
+    background: var(--eas-ok-bg);
+    border-color: #a7f3d0;
+    color: var(--eas-ok);
+}
+
+/* ------------------------------------------------------------------ panels */
+.eas-panel {
+    background: var(--eas-surface);
+    border: 1px solid var(--eas-line);
+    border-radius: var(--eas-radius);
+    padding: 32px;
+    margin-bottom: 24px;
+}
+
+.eas-panel--plain {
+    background: none;
+    border: 0;
+    padding: 0;
+}
+
+.eas-panel > h2 {
+    margin: 0 0 4px;
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    padding: 0;
+}
+
+.eas-panel > h2 + p {
+    margin: 0 0 26px;
+    color: var(--eas-muted);
+}
+
+.eas-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--eas-muted);
+}
+
+.eas-field {
+    margin-bottom: 26px;
+}
+
+.eas-field:last-child {
+    margin-bottom: 0;
+}
+
+/* ------------------------------------------------------------------ inputs */
+.engageai-studio input[type="text"],
+.engageai-studio textarea,
+.engageai-studio select {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1px solid var(--eas-line);
+    border-radius: var(--eas-radius-sm);
+    background: var(--eas-surface);
+    color: var(--eas-ink);
+    font-size: 15px;
+    line-height: 1.55;
+    box-shadow: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.engageai-studio textarea {
+    min-height: 150px;
+    resize: vertical;
+}
+
+.engageai-studio input[type="text"]:focus,
+.engageai-studio textarea:focus,
+.engageai-studio select:focus {
+    outline: none;
+    border-color: var(--eas-accent);
+    box-shadow: 0 0 0 3px rgba(17, 24, 39, .08);
+}
+
+.eas-hint {
+    margin: 8px 0 0;
+    font-size: 13px;
+    color: var(--eas-muted);
+}
+
+.eas-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.eas-row > * {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+/* ----------------------------------------------------------------- buttons */
+.engageai-studio .eas-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 20px;
+    border: 1px solid var(--eas-accent);
+    border-radius: 999px;
+    background: var(--eas-accent);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+    transition: opacity .15s ease;
+}
+
+.engageai-studio .eas-btn:hover {
+    opacity: .86;
+    color: #fff;
+}
+
+.engageai-studio .eas-btn--ghost {
+    background: transparent;
+    color: var(--eas-ink);
+    border-color: var(--eas-line);
+}
+
+.engageai-studio .eas-btn--ghost:hover {
+    color: var(--eas-ink);
+    border-color: var(--eas-faint);
+    opacity: 1;
+}
+
+.eas-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 28px;
+}
+
+.eas-actions form {
+    margin: 0;
+}
+
+/* ------------------------------------------------------------ choice cards */
+.eas-choices {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.eas-choice {
+    position: relative;
+    display: block;
+    border: 1px solid var(--eas-line);
+    border-radius: var(--eas-radius);
+    padding: 20px;
+    cursor: pointer;
+    background: var(--eas-surface);
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.eas-choice:hover {
+    border-color: var(--eas-faint);
+}
+
+.eas-choice input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.eas-choice__title {
+    font-weight: 650;
+    margin-bottom: 4px;
+}
+
+.eas-choice__desc {
+    font-size: 13px;
+    color: var(--eas-muted);
+    line-height: 1.5;
+}
+
+.eas-choice:has(input:checked) {
+    border-color: var(--eas-accent);
+    box-shadow: 0 0 0 1px var(--eas-accent);
+}
+
+/* ------------------------------------------------------------- idea cards */
+.eas-ideas {
+    display: grid;
+    gap: 16px;
+}
+
+.eas-idea {
+    border: 1px solid var(--eas-line);
+    border-radius: var(--eas-radius);
+    padding: 26px;
+    background: var(--eas-surface);
+}
+
+.eas-idea h3 {
+    margin: 0 0 8px;
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    line-height: 1.35;
+}
+
+.eas-idea p {
+    margin: 0 0 6px;
+    color: var(--eas-muted);
+    font-size: 14px;
+}
+
+.eas-idea__why {
+    color: var(--eas-ok) !important;
+    font-size: 13px !important;
+}
+
+.eas-idea__controls {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--eas-line);
+}
+
+.eas-idea__controls > div {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+.eas-idea__controls .eas-label {
+    margin-bottom: 6px;
+}
+
+/* ------------------------------------------------------------------ badges */
+.eas-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--eas-canvas);
+    color: var(--eas-muted);
+    border: 1px solid var(--eas-line);
+}
+
+.eas-badge--ok {
+    background: var(--eas-ok-bg);
+    color: var(--eas-ok);
+    border-color: #a7f3d0;
+}
+
+.eas-badge--warn {
+    background: var(--eas-warn-bg);
+    color: var(--eas-warn);
+    border-color: #fde68a;
+}
+
+.eas-badge--bad {
+    background: var(--eas-bad-bg);
+    color: var(--eas-bad);
+    border-color: #fecaca;
+}
+
+.eas-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+/* ------------------------------------------------------------ quality pane */
+.eas-quality {
+    border: 1px solid var(--eas-line);
+    border-radius: var(--eas-radius);
+    padding: 24px;
+    background: var(--eas-canvas);
+}
+
+.eas-quality__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.eas-quality__head strong {
+    font-size: 15px;
+}
+
+.eas-quality ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.eas-quality li {
+    display: flex;
+    gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--eas-line);
+    font-size: 14px;
+    color: var(--eas-ink);
+}
+
+.eas-quality li:first-child {
+    border-top: 0;
+}
+
+.eas-quality li span {
+    flex: none;
+    font-weight: 700;
+}
+
+.eas-quality li.is-error span {
+    color: var(--eas-bad);
+}
+
+.eas-quality li.is-warning span {
+    color: var(--eas-warn);
+}
+
+.eas-quality li.is-fixed span {
+    color: var(--eas-ok);
+}
+
+/* ------------------------------------------------------------------- media */
+.eas-preview {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+.eas-preview__frame {
+    flex: 0 0 auto;
+    max-width: 340px;
+    border-radius: var(--eas-radius);
+    overflow: hidden;
+    border: 1px solid var(--eas-line);
+    background: var(--eas-canvas);
+}
+
+.eas-preview__frame img,
+.eas-preview__frame video {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
+.eas-preview__body {
+    flex: 1 1 280px;
+    min-width: 0;
+}
+
+.eas-working {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 26px;
+    border: 1px dashed var(--eas-line);
+    border-radius: var(--eas-radius);
+    color: var(--eas-muted);
+    background: var(--eas-canvas);
+}
+
+.eas-spinner {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--eas-line);
+    border-top-color: var(--eas-accent);
+    border-radius: 50%;
+    animation: eas-spin 0.8s linear infinite;
+}
+
+@keyframes eas-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ------------------------------------------------------------------ notice */
+.eas-notice {
+    border: 1px solid var(--eas-line);
+    border-left-width: 3px;
+    border-radius: var(--eas-radius-sm);
+    padding: 14px 18px;
+    margin-bottom: 24px;
+    background: var(--eas-surface);
+    font-size: 14px;
+}
+
+.eas-notice--ok {
+    border-left-color: var(--eas-ok);
+    background: var(--eas-ok-bg);
+}
+
+.eas-notice--bad {
+    border-left-color: var(--eas-bad);
+    background: var(--eas-bad-bg);
+}
+
+/* ------------------------------------------------------------------- misc */
+.eas-copyblock {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    background: var(--eas-canvas);
+    border: 1px solid var(--eas-line);
+    border-radius: var(--eas-radius-sm);
+    padding: 18px;
+    font-size: 14px;
+    line-height: 1.65;
+    margin: 0;
+}
+
+.eas-tags {
+    margin: 14px 0 0;
+    color: var(--eas-muted);
+    font-size: 13px;
+    word-wrap: break-word;
+}
+
+.eas-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--eas-muted);
+}
+
+.eas-slides {
+    display: grid;
+    gap: 12px;
+}
+
+.eas-slide {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+}
+
+.eas-slide__n {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--eas-canvas);
+    border: 1px solid var(--eas-line);
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--eas-muted);
+}
+
+@media (max-width: 782px) {
+    .engageai-studio {
+        margin-right: 12px;
+    }
+
+    .eas-panel {
+        padding: 22px;
+    }
+
+    .eas-step__label {
+        display: none;
+    }
+}

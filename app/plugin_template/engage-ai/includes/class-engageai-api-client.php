@@ -241,6 +241,104 @@ class EngageAI_Api_Client
         ];
     }
 
+    /* ------------------------------------------------------------------
+     * Content Studio: the multi-pass workflow (goal -> idea -> copy ->
+     * quality check -> media -> publish). One method per pass, mirroring
+     * the API's /studio endpoints.
+     * ------------------------------------------------------------------ */
+
+    /**
+     * The studio's pickers: business goals, the three formats, and the layout
+     * (canvas size + copy limits) for every channel/format pair. Cached for a
+     * day - it only changes when the plugin does.
+     * @return array|WP_Error
+     */
+    public function get_studio_catalog()
+    {
+        $cached = get_transient('engageai_studio_catalog');
+        if (is_array($cached) && !empty($cached['formats'])) {
+            return $cached;
+        }
+        $result = $this->request('GET', '/studio/catalog');
+        if (!is_wp_error($result) && !empty($result['formats'])) {
+            set_transient('engageai_studio_catalog', $result, DAY_IN_SECONDS);
+        }
+        return $result;
+    }
+
+    /**
+     * Pass 1: a business goal in, competing ideas out. LLM-backed.
+     * @return array|WP_Error {"goal", "ideas": [{headline, angle, why, format, channel}]}
+     */
+    public function studio_ideas(int $org_id, string $goal, string $notes = '', int $count = 3)
+    {
+        return $this->request('POST', '/studio/ideas?organization_id=' . $org_id, [
+            'goal' => $goal,
+            'notes' => $notes !== '' ? $notes : null,
+            'count' => $count,
+        ], true, 120);
+    }
+
+    /**
+     * Pass 2: one chosen idea becomes real copy, shaped by its channel/format
+     * layout and quality-checked before it comes back. LLM-backed.
+     * @return array|WP_Error the saved ContentItem
+     */
+    public function studio_draft(int $org_id, array $idea, string $format, string $channel, string $goal)
+    {
+        return $this->request('POST', '/studio/draft?organization_id=' . $org_id, [
+            'idea' => [
+                'headline' => (string) ($idea['headline'] ?? ''),
+                'angle' => (string) ($idea['angle'] ?? ''),
+                'why' => (string) ($idea['why'] ?? ''),
+            ],
+            'format' => $format,
+            'channel' => $channel,
+            'goal' => $goal,
+        ], true, 180);
+    }
+
+    /**
+     * Pass 3: re-run the quality check. With $revise, anything the mechanical
+     * repairs can't fix is sent back to the AI for a rewrite (so, LLM-backed
+     * and slower).
+     * @return array|WP_Error {"content_id", "quality"}
+     */
+    public function studio_check(int $org_id, int $content_id, bool $revise = false)
+    {
+        $path = '/studio/' . $content_id . '/check?organization_id=' . $org_id . ($revise ? '&revise=true' : '');
+        return $this->request('POST', $path, null, true, $revise ? 180 : 45);
+    }
+
+    /**
+     * The operator's own edits, saved and re-checked in one step.
+     * @return array|WP_Error the updated ContentItem
+     */
+    public function studio_edit(int $org_id, int $content_id, array $fields)
+    {
+        return $this->request('POST', '/studio/' . $content_id . '/edit?organization_id=' . $org_id, $fields, true, 45);
+    }
+
+    /**
+     * Pass 4: starts the media render. Returns immediately with status
+     * "running" - the render happens on the API in the background because a
+     * generated background image takes tens of seconds and a video needs
+     * several. Poll studio_render_status().
+     * @return array|WP_Error {"status", "kind", ...}
+     */
+    public function studio_render(int $org_id, int $content_id)
+    {
+        return $this->request('POST', '/studio/' . $content_id . '/render?organization_id=' . $org_id, null, true, 45);
+    }
+
+    /**
+     * @return array|WP_Error {"status": none|running|done|failed, "asset_id", "mime", ...}
+     */
+    public function studio_render_status(int $org_id, int $content_id)
+    {
+        return $this->request('GET', '/studio/' . $content_id . '/render?organization_id=' . $org_id, null, true, 30);
+    }
+
     /**
      * Asks the API to draft content and saves it as tracked content. With
      * $channel + $content_type set, drafts that content type for that channel
