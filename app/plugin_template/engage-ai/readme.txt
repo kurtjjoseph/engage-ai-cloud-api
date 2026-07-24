@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.21.0
+Stable tag: 0.22.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -26,9 +26,13 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 3. Connect with the email/password you registered with on the API (your password is used once to connect and is not stored — only the resulting session token is kept).
 4. Select or create your organization. A website URL sharpens the Analytics module's search a lot for common organization names.
 5. Under Settings > Modules, turn on Engagement, Analytics, and/or whichever side-hustle agents this organization needs.
-6. Go to Engage AI > Generate Content for the church-engagement generators, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
+6. Go to Engage AI > Content Studio to create content step by step, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.22.0 =
+* The Content Studio now remembers where you were. Open it from the menu and it drops you straight back into the piece you were working on - so you can go and preview the image or video in your Media Library, come back, and pick up exactly where you left off, instead of starting from the goal screen again.
+* Removed the old Generate Content page. Everything it did is now in the Content Studio (create) and the Content Library (see what you've made), so there's one clear place to create content instead of two overlapping ones.
 
 = 0.21.0 =
 * New Content Studio - content creation rebuilt as a workflow you can steer instead of one button and a wall of output. It runs in passes: pick the business goal, choose from competing ideas, shape the copy, read the quality check, make the media, publish. Every pass is its own screen, so you can change the format, rewrite a line, or send a draft back for another pass at any point, and a half-built piece can be left and picked up later.

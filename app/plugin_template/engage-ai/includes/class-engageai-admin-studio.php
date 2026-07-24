@@ -33,6 +33,8 @@ class EngageAI_Admin_Studio
     private const IDEAS_TRANSIENT = 'engageai_studio_ideas_';
     /** Media Library attachment id for a rendered piece, so the preview survives a reload. */
     private const MEDIA_TRANSIENT = 'engageai_studio_media_';
+    /** The user's last position in the studio (step + piece), so opening the page resumes it. */
+    private const POSITION_META = 'engageai_studio_position';
 
     public static function instance(): EngageAI_Admin_Studio
     {
@@ -281,12 +283,25 @@ class EngageAI_Admin_Studio
             $this->render_not_ready();
             return;
         }
-        $step = sanitize_key($_GET['step'] ?? 'goal');
-        $content_id = (int) ($_GET['content_id'] ?? 0);
         $steps = ['goal', 'idea', 'draft', 'media', 'publish'];
+
+        // Opening the page from the menu carries no step in the URL - that's
+        // the "pick up where I left off" case: resume the last saved position
+        // (e.g. after wandering off to preview the media in the Media Library)
+        // instead of dumping the operator back at the goal screen. An explicit
+        // ?step= in the URL always wins, so the stepper and every in-page link
+        // still navigate normally.
+        if (!isset($_GET['step'])) {
+            [$step, $content_id] = $this->resume_position();
+        } else {
+            $step = sanitize_key($_GET['step']);
+            $content_id = (int) ($_GET['content_id'] ?? 0);
+        }
         if (!in_array($step, $steps, true)) {
             $step = 'goal';
         }
+        // Record where we are now, so the next bare landing resumes here.
+        $this->remember_position($step, $content_id);
         ?>
         <div class="wrap engageai-studio">
             <div class="eas-masthead">
@@ -864,6 +879,44 @@ class EngageAI_Admin_Studio
                 : rawurldecode((string) $_GET['error']);
             printf('<div class="eas-notice eas-notice--bad">%s</div>', esc_html($error));
         }
+    }
+
+    /**
+     * Saves the operator's current spot so opening the studio from the menu
+     * later drops them back here. Steps bound to a piece (draft/media/publish)
+     * are only remembered with their content id - a step with no piece isn't a
+     * place worth resuming to, so those reset to the goal screen.
+     */
+    private function remember_position(string $step, int $content_id): void
+    {
+        if (in_array($step, ['draft', 'media', 'publish'], true) && $content_id > 0) {
+            update_user_meta(get_current_user_id(), self::POSITION_META, ['step' => $step, 'content_id' => $content_id]);
+        } elseif ($step === 'goal') {
+            // Reached the start deliberately (Start over / Make another piece):
+            // forget the old piece so the next visit begins fresh.
+            delete_user_meta(get_current_user_id(), self::POSITION_META);
+        }
+    }
+
+    /**
+     * The step + piece to resume on a bare landing. Falls back to the goal
+     * screen, and never resumes to a piece the API can no longer find (deleted,
+     * or a different org selected since).
+     * @return array{0:string,1:int} [step, content_id]
+     */
+    private function resume_position(): array
+    {
+        $saved = get_user_meta(get_current_user_id(), self::POSITION_META, true);
+        if (!is_array($saved) || empty($saved['content_id'])) {
+            return ['goal', 0];
+        }
+        $content_id = (int) $saved['content_id'];
+        $step = in_array(($saved['step'] ?? ''), ['draft', 'media', 'publish'], true) ? $saved['step'] : 'draft';
+        if (!$this->find_item((int) $this->client->get_organization_id(), $content_id)) {
+            delete_user_meta(get_current_user_id(), self::POSITION_META);
+            return ['goal', 0];
+        }
+        return [$step, $content_id];
     }
 
     /** The studio works on one piece at a time; the content list is the source of truth for it. */
