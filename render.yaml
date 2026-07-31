@@ -33,6 +33,34 @@ services:
         sync: false
       - key: BREVO_SENDER_NAME
         value: Engage AI
+      # Per-channel posting authentication (docs/channel-authentication.md).
+      # TOKEN_ENCRYPTION_KEY encrypts customers' channel tokens at rest -
+      # generated once here; NOTE that regenerating it invalidates every stored
+      # channel connection (each customer would have to reconnect), so it is
+      # deliberately not tied to JWT_SECRET's rotation.
+      - key: TOKEN_ENCRYPTION_KEY
+        generateValue: true
+      # OAuth app credentials, set in the Render dashboard once each provider
+      # app is registered (sync:false = never in git). A provider left unset
+      # simply can't be connected by one-click sign-in - that channel falls back
+      # to the paste-a-long-lived-token path, which needs no app.
+      # Redirect URI to register: {API_BASE_URL}/channels/callback/{channel}
+      - key: FACEBOOK_CLIENT_ID
+        sync: false
+      - key: FACEBOOK_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: LINKEDIN_CLIENT_ID
+        sync: false
+      - key: LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: TWITTER_CLIENT_ID
+        sync: false
+      - key: TWITTER_CLIENT_SECRET
+        sync: false
       - key: ENABLE_SCHEDULER
         value: "true"
       - key: CYCLE_INTERVAL_HOURS

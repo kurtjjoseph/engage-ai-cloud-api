@@ -9,7 +9,12 @@ ChannelAdapter contract.
 from .base import ChannelAdapter, DISTRIBUTABLE_CHANNELS
 from .website import WebsiteAdapter
 from .social import SimulatedSocialAdapter
-from .registry import get_adapter, register_adapter, distribute_engagement
+from .registry import (
+    distribute_engagement,
+    get_adapter,
+    register_adapter,
+    unregister_adapter,
+)
 
 __all__ = [
     "ChannelAdapter",
@@ -17,6 +22,7 @@ __all__ = [
     "SimulatedSocialAdapter",
     "get_adapter",
     "register_adapter",
+    "unregister_adapter",
     "distribute_engagement",
     "DISTRIBUTABLE_CHANNELS",
 ]

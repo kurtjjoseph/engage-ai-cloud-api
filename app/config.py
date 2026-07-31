@@ -54,6 +54,33 @@ class Settings(BaseSettings):
     brevo_sender_email: str | None = None
     brevo_sender_name: str = "Engage AI"
 
+    # --- Per-channel posting authentication (services/channels/providers.py) ---
+    # Encryption key for third-party channel tokens at rest. A Fernet key
+    # (services/crypto.generate_key()) or any passphrase; unset derives one
+    # from jwt_secret - see services/crypto.py for the rotation caveat.
+    token_encryption_key: str | None = None
+    # OAuth app credentials, one pair per identity provider. A provider with
+    # no client id/secret configured simply can't be connected by OAuth - the
+    # channel then offers the manual long-lived-token path instead, so the
+    # feature is usable before an app review completes. Redirect URI to
+    # register with each provider:
+    #   {api_base_url}/channels/callback/{channel}
+    # facebook_* backs both the "facebook" and "instagram" channels;
+    # google_* backs both "youtube" and "google_business".
+    facebook_client_id: str | None = None
+    facebook_client_secret: str | None = None
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    linkedin_client_id: str | None = None
+    linkedin_client_secret: str | None = None
+    twitter_client_id: str | None = None
+    twitter_client_secret: str | None = None
+    # Signs the short-lived public media URLs Instagram's publishing API
+    # requires (it fetches the image itself, so it can't send a bearer token).
+    # Unset falls back to jwt_secret.
+    media_url_signing_key: str | None = None
+    media_url_ttl_seconds: int = 900
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

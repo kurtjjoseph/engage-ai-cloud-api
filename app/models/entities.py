@@ -287,6 +287,91 @@ class PublicationSnapshot(Base):
     publication = relationship("Publication", back_populates="snapshots")
 
 
+class ChannelConnection(Base):
+    """One organization's authenticated connection to one posting channel.
+
+    This is what turns Engage AI from "drafts you copy-paste" into "drafts it
+    can actually publish": the org's admin authorizes Engage AI once per
+    channel (OAuth, or a pasted long-lived token where no provider app is
+    registered yet), and the resulting credentials live here so the live
+    adapters in services/channels/live.py can post on that channel's API.
+
+    Tokens are ENCRYPTED at rest (services/crypto.py) and are never returned
+    by any endpoint - the API only ever reports *that* a channel is connected,
+    which account it is connected as, and when the token expires.
+
+    Connecting a channel is not the same as consenting to autonomous posting:
+    `auto_post` stays False until the admin explicitly turns it on, and the
+    live adapters refuse a channel whose status isn't "connected".
+    """
+
+    __tablename__ = "channel_connections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    # One of services/channels/providers.PROVIDERS - "facebook", "instagram",
+    # "linkedin", "youtube", "twitter_x", "google_business".
+    channel: Mapped[str] = mapped_column(String(50), index=True)
+    # The identity provider behind the channel ("facebook" backs both the
+    # facebook and instagram channels; "google" backs youtube and
+    # google_business), kept so a token's origin is unambiguous.
+    provider: Mapped[str] = mapped_column(String(50))
+    # "connected" | "expired" | "error" | "revoked". Only "connected" posts.
+    status: Mapped[str] = mapped_column(String(20), default="connected", index=True)
+    # "oauth" (authorization-code flow) or "manual_token" (admin pasted a
+    # long-lived token, for providers whose app isn't registered yet).
+    auth_method: Mapped[str] = mapped_column(String(20), default="oauth")
+    # Who Engage AI is posting AS on this channel, for display + audit.
+    account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    account_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    scopes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    access_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Provider-specific posting target resolved at connect time, e.g.
+    # {"page_id": ...} for facebook, {"ig_user_id": ...} for instagram,
+    # {"author_urn": ...} for linkedin, {"location": "accounts/1/locations/2"}
+    # for google_business. Kept out of the channel-agnostic columns above
+    # because no two providers agree on what "where to post" means.
+    target: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Explicit opt-in to autonomous posting on this channel. False = Engage AI
+    # may only post when a human presses publish for a specific piece.
+    auto_post: Mapped[bool] = mapped_column(Boolean, default=False)
+    connected_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    connected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Last provider/refresh failure, surfaced verbatim so an admin can see why
+    # a channel stopped working instead of a generic "disconnected".
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ChannelAuthRequest(Base):
+    """One in-flight OAuth authorization for one channel.
+
+    Holds the CSRF `state` and the PKCE code_verifier server-side (rather than
+    round-tripping them through the browser) so the callback can prove the code
+    it receives belongs to an authorization this API actually started, for this
+    organization, on behalf of this user. Single-use and short-lived.
+    """
+
+    __tablename__ = "channel_auth_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    channel: Mapped[str] = mapped_column(String(50))
+    state: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    code_verifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Where to send the admin back to once the callback completes (the WP
+    # plugin's Channels page). Only http(s) URLs are accepted at creation.
+    return_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class EngagementCycleRun(Base):
     """Log of one full, autonomous "engagement cycle" run for one
     organization (services/engagement_cycle.py) - the seven-stage

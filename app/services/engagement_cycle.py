@@ -338,7 +338,12 @@ def run_full_cycle(
     distributed_engagements: list[dict] = []
     sim_flags: list[bool] = []
     for engagement in approved:
-        adapter = get_adapter(engagement["channel"])
+        # require_auto_post: this is the unattended path, so a channel the org
+        # authenticated but never opted into autonomous posting on stays
+        # simulated here - authorizing is not the same as consenting to post.
+        adapter = get_adapter(
+            engagement["channel"], db=db, org=org, require_auto_post=True
+        )
         sim_flags.append(bool(getattr(adapter, "simulated", False)))
         publication = adapter.distribute(db, org, engagement)
         publications.append(publication)

@@ -421,6 +421,30 @@
       +grid+'<path d="'+area+'" fill="var(--accent)" fill-opacity="0.10"/><path d="'+line+'" fill="none" stroke="var(--accent)" stroke-width="2"/>'+dots+'</svg>';
   }
 
+  // Which channels this site has authorized Engage AI to post on, and whether
+  // any of them is allowed to post unattended. Read-only: connecting happens in
+  // the site owner's own WordPress admin, never here on their behalf.
+  function channelsPanel(channels){
+    if(!channels||!channels.length) return "";
+    var live=channels.filter(function(c){return c.connected;}).length;
+    var rows=channels.map(function(c){
+      var chip=c.connected?'<span class="chip ok">connected</span>'
+        :c.status==="expired"?'<span class="chip warn">expired</span>'
+        :c.status==="error"?'<span class="chip bad">needs attention</span>'
+        :c.status==="revoked"?'<span class="chip dim">disconnected</span>'
+        :'<span class="chip dim">not connected</span>';
+      var sub=c.connected
+        ? esc(c.account_name||"account not named")
+          +(c.auto_post?' · <strong>posts automatically</strong>':" · publishes only when a human does")
+          +(c.expires_at?' · access until '+new Date(c.expires_at).toLocaleDateString():"")
+          +(c.last_used_at?' · last post '+ago(c.last_used_at):"")
+        : (c.last_error?esc(c.last_error):(c.oauth_available?"Available to connect from the site's WordPress admin.":"Connects with an access token (no app configured for this provider)."));
+      return '<li><strong>'+esc(c.label||c.channel)+'</strong> '+chip+'<div class="sub">'+sub+'</div></li>';
+    }).join("");
+    return '<div class="panel"><h3>Posting access ('+live+'/'+channels.length+' connected)</h3>'
+      +'<ul class="runlist">'+rows+'</ul></div>';
+  }
+
   function renderDetail(d){
     var ins=d.insights;
     var head=
@@ -477,6 +501,8 @@
         +'<div class="panel"><h3>Channels ('+(d.history.length)+' scans)</h3><div class="kpis">'+kpis+'</div>'
           +(ins.summary?'<p class="sub" style="margin:14px 0 0">'+esc(ins.summary)+'</p>':"")+'</div>';
     }
+    body+=channelsPanel(d.channels);
+
     var scanRows=(d.scans||[]).map(function(s){
       var st=s.status==="complete"?'<span class="chip ok">complete</span>':s.status==="pending"?'<span class="chip dim">running…</span>':'<span class="chip bad">'+esc(s.status)+'</span>';
       return '<li class="scan-row" data-sid="'+s.id+'"><div><strong>'+ago(s.created_at)+'</strong> '+st

@@ -58,6 +58,7 @@ class EngageAI_Admin_Studio
         add_action('admin_post_engageai_studio_improve', [$this, 'handle_improve']);
         add_action('admin_post_engageai_studio_render', [$this, 'handle_render']);
         add_action('admin_post_engageai_studio_publish', [$this, 'handle_publish']);
+        add_action('admin_post_engageai_studio_post_channel', [$this, 'handle_post_channel']);
         add_action('wp_ajax_engageai_studio_render_status', [$this, 'ajax_render_status']);
     }
 
@@ -194,6 +195,32 @@ class EngageAI_Admin_Studio
             set_post_thumbnail($post_id, $attachment_id);
         }
         $this->redirect(['step' => 'publish', 'content_id' => $content_id, 'drafted' => (int) $post_id]);
+    }
+
+    /**
+     * Posts this piece to its channel for real, through the account the site
+     * owner authorized on the Channels page. Deliberately one explicit action
+     * for one named piece — this is the human pressing publish, not the
+     * autonomous path.
+     */
+    public function handle_post_channel(): void
+    {
+        $this->guard('engageai_studio_post_channel');
+        $org_id = (int) $this->client->get_organization_id();
+        $content_id = (int) ($_POST['content_id'] ?? 0);
+        $channel = sanitize_key($_POST['channel'] ?? '');
+        if (!$org_id || !$content_id || $channel === '') {
+            $this->redirect(['error' => 'not_ready']);
+        }
+        $result = $this->client->publish_to_channel($org_id, $channel, $content_id);
+        if (is_wp_error($result)) {
+            $this->redirect(['step' => 'publish', 'content_id' => $content_id, 'error' => rawurlencode($result->get_error_message())]);
+        }
+        $this->redirect([
+            'step' => 'publish',
+            'content_id' => $content_id,
+            'posted' => rawurlencode((string) ($result['url'] ?? '')),
+        ]);
     }
 
     /**
@@ -792,6 +819,7 @@ class EngageAI_Admin_Studio
                         <?php if (!empty($hashtags)): ?>
                             <p class="eas-tags"><?php echo esc_html('#' . implode(' #', array_map('sanitize_text_field', $hashtags))); ?></p>
                         <?php endif; ?>
+                        <?php $this->render_channel_publish($content_id, $channel); ?>
                         <div class="eas-actions">
                             <button type="button" class="eas-btn" id="eas-copy-btn"><?php esc_html_e('Copy the text', 'engage-ai'); ?></button>
                             <?php if ($attachment_id): ?>
@@ -815,6 +843,60 @@ class EngageAI_Admin_Studio
                 <a class="eas-btn eas-btn--ghost" href="<?php echo esc_url($this->url(['step' => 'goal'])); ?>"><?php esc_html_e('Make another piece', 'engage-ai'); ?></a>
                 <a class="eas-btn eas-btn--ghost" href="<?php echo esc_url(admin_url('admin.php?page=engageai-content')); ?>"><?php esc_html_e('See everything created so far', 'engage-ai'); ?></a>
             </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * The "post it for me" half of the publish step.
+     *
+     * If the site owner has authorized this channel on the Channels page, this
+     * offers to publish the piece through that account directly. If not, it
+     * points them at the Channels page — the copy/download route below stays
+     * either way, so nothing depends on having connected anything.
+     */
+    private function render_channel_publish(int $content_id, string $channel): void
+    {
+        $org_id = (int) $this->client->get_organization_id();
+        $status = $org_id ? $this->client->get_channel_connections($org_id) : null;
+        $connection = null;
+        if (is_array($status)) {
+            foreach ((array) ($status['channels'] ?? []) as $entry) {
+                if ((string) ($entry['channel'] ?? '') === $channel) {
+                    $connection = (array) $entry;
+                    break;
+                }
+            }
+        }
+
+        if ($connection === null) {
+            return; // channel Engage AI can't be authorized for (or the API is unreachable)
+        }
+        ?>
+        <div class="eas-actions" style="margin-bottom:12px;">
+            <?php if (!empty($connection['connected'])): ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline;">
+                    <input type="hidden" name="action" value="engageai_studio_post_channel">
+                    <input type="hidden" name="content_id" value="<?php echo esc_attr((string) $content_id); ?>">
+                    <input type="hidden" name="channel" value="<?php echo esc_attr($channel); ?>">
+                    <?php wp_nonce_field('engageai_studio_post_channel'); ?>
+                    <button type="submit" class="eas-btn"><?php echo esc_html(sprintf(
+                        /* translators: %s: the connected account, e.g. a Page name or @handle */
+                        __('Post it to %s now', 'engage-ai'),
+                        (string) ($connection['account_name'] ?? $this->channel_label($channel))
+                    )); ?></button>
+                </form>
+                <span class="eas-hint"><?php esc_html_e('Goes out immediately, as written.', 'engage-ai'); ?></span>
+            <?php else: ?>
+                <a class="eas-btn eas-btn--ghost" href="<?php echo esc_url(admin_url('admin.php?page=engageai-channels')); ?>">
+                    <?php echo esc_html(sprintf(
+                        /* translators: %s: channel name, e.g. Instagram */
+                        __('Connect %s to post from here', 'engage-ai'),
+                        $this->channel_label($channel)
+                    )); ?>
+                </a>
+                <span class="eas-hint"><?php esc_html_e('Or copy the text below and post it yourself.', 'engage-ai'); ?></span>
+            <?php endif; ?>
         </div>
         <?php
     }
@@ -866,6 +948,14 @@ class EngageAI_Admin_Studio
                 esc_html__('Created a WordPress draft with the image attached.', 'engage-ai'),
                 esc_url($edit ?: admin_url('edit.php?post_status=draft&post_type=post')),
                 esc_html__('Review it →', 'engage-ai')
+            );
+        } elseif (isset($_GET['posted'])) {
+            $url = esc_url_raw(rawurldecode((string) $_GET['posted']));
+            printf(
+                '<div class="eas-notice eas-notice--ok">%s%s</div>',
+                esc_html__('Published. It is live on the channel now.', 'engage-ai'),
+                $url ? sprintf(' <a href="%s" target="_blank" rel="noopener noreferrer">%s</a>',
+                    esc_url($url), esc_html__('See the post →', 'engage-ai')) : ''
             );
         } elseif (isset($_GET['improved'])) {
             printf('<div class="eas-notice eas-notice--ok">%s</div>',

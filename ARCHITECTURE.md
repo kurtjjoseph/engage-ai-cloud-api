@@ -114,6 +114,57 @@ Motivated by the previous content flow being one button that returned a wall of 
 
 **Verified end to end with no OpenAI key**: all three formats rendered through the real API surface (1080×1080 image, 1080×1350 text graphic, and a 720×1280 MP4 measured at exactly 192 frames @ 24fps = 8.00s).
 
+### 3.10 Per-channel posting authentication: the site owner authorizes, per channel
+
+Full design note: `docs/channel-authentication.md`.
+
+Engage AI could write for eight channels and post to one. Every other channel
+ended at "copy this and paste it in." This closes that: **Engage AI → Channels**
+in wp-admin, where the owner authorizes Facebook Page, Instagram, LinkedIn,
+YouTube, X or Google Business Profile — one at a time, at the provider, never by
+handing Engage AI a password.
+
+**Authorization is not consent to publish.** These are two separate facts and
+the schema keeps them separate: a `ChannelConnection` can exist, be healthy, and
+still never post, because `auto_post` defaults `False`. Only two things publish
+for real — a human pressing publish for one named piece, or a channel the owner
+separately opted into unattended posting on. The engagement cycle asks the
+registry with `require_auto_post=True`, so an authorized-but-not-opted-in
+channel keeps getting the *simulated* adapter it always got. An organization
+that has connected nothing behaves exactly as before.
+
+**Live vs simulated is per organization, not a global switch.** The registry
+(`services/channels/registry.py`) resolves in order: explicit runtime override →
+this org's live adapter if it has a healthy connection → the simulated default.
+That's what makes the feature additive rather than a migration: "is this post
+real?" was already an honest, recorded fact (`Publication.simulated`), and it
+stays one.
+
+**Every provider app is optional.** Meta, Google, LinkedIn and X each review an
+app before it may act for accounts outside the developer's own — that review,
+not this code, gates one-click connect. So each channel also accepts a
+long-lived token the owner generates themselves, verified against the provider
+before it is stored. A customer is never blocked waiting on a platform review.
+
+**The public callback is safe because the state is a database row.** The
+provider redirects a browser back with no bearer token, so `GET
+/channels/callback/{channel}` can't require auth. A `ChannelAuthRequest` — minted
+by an authenticated request, tied to one org and one user, 15-minute TTL, burned
+before the code is exchanged — is what makes an unknown or replayed callback
+connect nothing. The PKCE verifier (X, Google) lives in that row rather than
+travelling through the browser.
+
+**Tokens are encrypted at rest** (`services/crypto.py`, Fernet) and no endpoint
+returns token material. Key from `TOKEN_ENCRYPTION_KEY`, or derived from
+`JWT_SECRET` if unset — the fallback degrades safely rather than silently
+storing plaintext: an unreadable token marks the channel as needing a
+reconnect instead of raising.
+
+**One thing had to be conceded to the platforms:** Instagram and Google Business
+Profile fetch media by URL rather than accepting bytes, so those publishes mint
+a signed, single-asset, 15-minute public URL (`services/media_links.py`). It was
+that or not support the two channels.
+
 ## 4. Deployment scaffolding
 
 `render.yaml` is the active deploy path (see §3.3). The `Dockerfile` and `docker-compose.yml` remain useful for local development (`docker compose up`).

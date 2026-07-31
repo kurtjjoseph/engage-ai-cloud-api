@@ -457,6 +457,105 @@ class EngageAI_Api_Client
         return $this->request('POST', '/organizations/' . $org_id . '/publications/' . $publication_id . '/scan');
     }
 
+    /* ------------------------------------------------------ channel access */
+
+    /**
+     * Every channel Engage AI can be authorized to post on, and where this
+     * organization stands with each. Never contains credentials — only whether
+     * a channel is connected, as which account, and until when.
+     * @return array|WP_Error
+     */
+    public function get_channel_connections(int $org_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/channels');
+    }
+
+    /**
+     * Starts the OAuth flow for one channel. Returns the provider consent URL
+     * to send the admin's browser to; $return_url is where the callback page
+     * links back to afterwards.
+     * @return array|WP_Error {authorize_url, redirect_uri, scopes, expires_at}
+     */
+    public function start_channel_authorization(int $org_id, string $channel, string $return_url)
+    {
+        return $this->request(
+            'POST',
+            '/organizations/' . $org_id . '/channels/' . rawurlencode($channel) . '/authorize',
+            ['return_url' => $return_url]
+        );
+    }
+
+    /**
+     * Connects a channel with a long-lived token the admin generated at the
+     * provider themselves — for providers this deployment has no OAuth app for.
+     * @return array|WP_Error the channel's new status
+     */
+    public function connect_channel_token(int $org_id, string $channel, string $token)
+    {
+        return $this->request(
+            'POST',
+            '/organizations/' . $org_id . '/channels/' . rawurlencode($channel) . '/token',
+            ['access_token' => $token]
+        );
+    }
+
+    /**
+     * Re-checks a connection against the provider — answers "will this actually
+     * post?" without posting anything.
+     * @return array|WP_Error
+     */
+    public function verify_channel(int $org_id, string $channel)
+    {
+        return $this->request(
+            'POST',
+            '/organizations/' . $org_id . '/channels/' . rawurlencode($channel) . '/verify',
+            null,
+            true,
+            60
+        );
+    }
+
+    /**
+     * Turns unattended posting on or off for one connected channel.
+     * @return array|WP_Error
+     */
+    public function set_channel_auto_post(int $org_id, string $channel, bool $auto_post)
+    {
+        return $this->request(
+            'PATCH',
+            '/organizations/' . $org_id . '/channels/' . rawurlencode($channel),
+            ['auto_post' => $auto_post]
+        );
+    }
+
+    /**
+     * Forgets a channel's credentials. Past publications keep their record.
+     * @return array|WP_Error
+     */
+    public function disconnect_channel(int $org_id, string $channel)
+    {
+        return $this->request(
+            'DELETE',
+            '/organizations/' . $org_id . '/channels/' . rawurlencode($channel)
+        );
+    }
+
+    /**
+     * Publishes one piece of content to a connected channel, right now. Long
+     * timeout: a video goes over the wire to the provider inside this call.
+     * @return array|WP_Error {publication_id, url, account_name, ...}
+     */
+    public function publish_to_channel(int $org_id, string $channel, int $content_id)
+    {
+        return $this->request(
+            'POST',
+            '/organizations/' . $org_id . '/channels/' . rawurlencode($channel) . '/publish',
+            ['content_id' => $content_id],
+            true,
+            180
+        );
+    }
+
     /**
      * @param string $task one of: event, announcements, sermon
      * @return array|WP_Error

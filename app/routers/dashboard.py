@@ -16,6 +16,7 @@ from app.deps import get_current_user
 from app.db.session import get_db
 from app.models.entities import AgentRun, AnalyticsSnapshot, Organization, Publication, User
 from app.services.analytics_insights import compute_insights
+from app.services.channels import connections as channel_connections
 
 router = APIRouter(tags=["dashboard"])
 
@@ -260,6 +261,10 @@ def site_detail(org_id: int, db: Session = Depends(get_db), user: User = Depends
         "history": history,
         "scans": scans,
         "agent_runs": agent_runs,
+        # Which channels this site has authorized Engage AI to post on. Read-only
+        # here on purpose: connecting is the site owner's act, from their own
+        # WordPress admin, not something an operator does on their behalf.
+        "channels": channel_connections.describe_all(db, org.id),
     }
 
 

@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.22.0
+Stable tag: 0.23.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -29,6 +29,12 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 6. Go to Engage AI > Content Studio to create content step by step, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.23.0 =
+* New Channels page - connect the accounts you want Engage AI to post to: your Facebook Page, Instagram, LinkedIn, YouTube, X and Google Business Profile. You sign in at the channel itself, so Engage AI never sees your password, and you can withdraw its access from that page at any time.
+* Publish straight from the Content Studio. Once a channel is connected, the last step offers "Post it to <your account> now" and the piece goes out for real - copy, hashtags and the image or video it rendered. Nothing changes for channels you haven't connected: the copy-and-paste route is still there.
+* Connecting a channel does not start anything posting. Content still goes out only when you publish it, unless you switch automatic posting on for that channel yourself - it starts off, per channel, and says which channels have it on.
+* Each connected channel shows who Engage AI posts as, when its access expires (renewed automatically where the channel allows), and a "check it still works" button that tells you straight away if a channel has stopped accepting posts.
 
 = 0.22.0 =
 * The Content Studio now remembers where you were. Open it from the menu and it drops you straight back into the piece you were working on - so you can go and preview the image or video in your Media Library, come back, and pick up exactly where you left off, instead of starting from the goal screen again.
