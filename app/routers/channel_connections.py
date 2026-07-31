@@ -54,6 +54,7 @@ from app.services.channels.providers import (
     new_state,
     resolve_account,
 )
+from app.services.channels.setup_guide import build_guide
 from app.services.media_links import verify_media_url
 
 router = APIRouter(tags=["channel-connections"])
@@ -166,6 +167,30 @@ def list_channel_connections(
     why. Never includes credentials."""
     org = get_owned_org(org_id, db, user)
     return {"organization_id": org.id, "channels": conn_service.describe_all(db, org.id)}
+
+
+@router.get("/organizations/{org_id}/channels/setup-guide")
+def channel_setup_guide(
+    org_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """The step-by-step wizard behind the plugin's "Set up a channel" page:
+    for each channel, how to create it, what has to be true before it can be
+    authorized, and how to authorize it - including the live link to the page
+    that issues an access token where one is needed.
+
+    Declared before /{channel} so "setup-guide" is matched as this route rather
+    than as a channel name.
+
+    Served from the API rather than baked into the plugin because providers move
+    these pages, and one deploy is better than every install carrying a stale
+    link."""
+    org = get_owned_org(org_id, db, user)
+    statuses = conn_service.describe_all(db, org.id)
+    return {
+        "organization_id": org.id,
+        "organization_name": org.name,
+        "channels": build_guide(org, statuses),
+    }
 
 
 @router.get("/organizations/{org_id}/channels/{channel}")

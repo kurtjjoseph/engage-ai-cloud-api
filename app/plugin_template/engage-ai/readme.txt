@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.23.0
+Stable tag: 0.24.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -29,6 +29,12 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 6. Go to Engage AI > Content Studio to create content step by step, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.24.0 =
+* New "Set up a channel" page - a step-by-step walkthrough that takes one channel from "we don't have one yet" to "Engage AI can post on it". It asks whether you already have the channel, then gives you only the steps you actually need: creating the Facebook Page, switching Instagram to a business account, claiming your place on Google Maps, and so on.
+* Every step that sends you somewhere has the real link on it, opening in its own tab so the page keeps your place. Where a channel needs an access token, the steps link straight to the page that issues one - Meta's Graph API Explorer, LinkedIn's token generator, Google's OAuth Playground - instead of leaving you to find it.
+* Your organisation's own name, website and suggested handle are already filled into the steps with a Copy button, so there is nothing to retype into a form on someone else's website.
+* Stop halfway and come back - the wizard remembers which channel you were on and which step, per user. A channel that's already connected is shown as done rather than asking you to set it up again.
 
 = 0.23.0 =
 * New Channels page - connect the accounts you want Engage AI to post to: your Facebook Page, Instagram, LinkedIn, YouTube, X and Google Business Profile. You sign in at the channel itself, so Engage AI never sees your password, and you can withdraw its access from that page at any time.

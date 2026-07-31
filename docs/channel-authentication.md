@@ -27,6 +27,27 @@ at the provider and pastes it in. Both paths end in the same place.
 Once connected, the Content Studio's publish step gains **"Post it to *(your
 account)* now"**. The copy-and-paste route stays exactly where it was.
 
+### Set up a channel (the wizard)
+
+**Engage AI → Set up a channel** is the page underneath the Channels page: it
+answers "how do I get there?" rather than "is it connected?". Pick a channel,
+say whether you already have it, and you get only the steps that apply —
+create the Page, switch Instagram to a business account, claim the Google
+listing — ending in authorizing Engage AI.
+
+Every step that sends someone somewhere carries the real URL. The token steps
+link straight to the page that *issues* a token (Meta's Graph API Explorer,
+LinkedIn's token generator, Google's OAuth Playground), since "generate an
+access token" is otherwise an instruction to go and get lost in a developer
+console. Scopes and the org's own name/website/handle come through as
+copy-me chips.
+
+The content lives in `services/channels/setup_guide.py` and is served by
+`GET /organizations/{id}/channels/setup-guide`, **not** hardcoded in the
+plugin — providers move these pages, and one deploy beats every install
+carrying a stale link until its owner updates. The plugin renders it and
+remembers position per user; a connected channel shows as done.
+
 ## The two rules this is built around
 
 **1. Engage AI never holds a credential in the clear.**
@@ -49,6 +70,8 @@ existed. An org that has connected nothing is bit-for-bit unchanged.
 routers/channel_connections.py   the flow: authorize → callback → connected
 services/channels/providers.py   per-provider auth: URLs, scopes, code exchange,
                                  refresh, "which account is this?"
+services/channels/setup_guide.py the wizard content: create/prepare/connect steps
+                                 per channel, with live token-source links
 services/channels/connections.py storage + lifecycle: encrypt, refresh-before-use,
                                  verify, disconnect, status
 services/channels/live.py        the real adapters — one per channel, each posting
@@ -63,6 +86,7 @@ Endpoints:
 
 ```
 GET    /organizations/{id}/channels                  status of every channel
+GET    /organizations/{id}/channels/setup-guide      the setup wizard's steps
 POST   /organizations/{id}/channels/{ch}/authorize   -> provider consent URL
 GET    /channels/callback/{ch}                       provider returns here (public)
 POST   /organizations/{id}/channels/{ch}/token       paste a long-lived token
@@ -149,10 +173,12 @@ Also set:
 
 ## Tests
 
-`tests/test_channel_connections.py` — 26 tests, no network. They cover the
+`tests/test_channel_connections.py` — 30 tests, no network. They cover the
 things that must hold whatever the platform on the other end does: tokens
 encrypted and never returned, state single-use and non-replayable, a pasted
 token verified before storage, connecting not enabling autonomous posting,
 disconnect keeping history but dropping credentials, refresh-before-use,
 signed media links scoped to one asset, and an unconnected org still getting
-the simulated adapter.
+the simulated adapter. Plus the wizard: every channel covered, the org's own
+details filled into the steps, and every token step actually carrying a link
+to where that token is issued.

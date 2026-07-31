@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.23.0
+ * Version: 0.24.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.23.0');
+define('ENGAGEAI_VERSION', '0.24.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -26,6 +26,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-assistant.php'
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-content.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-studio.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-channels.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-channel-setup.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-cron.php';
 
 /**
@@ -92,6 +93,7 @@ final class EngageAI_Plugin
         EngageAI_Admin_Content::instance()->register_hooks();
         EngageAI_Admin_Studio::instance()->register_hooks();
         EngageAI_Admin_Channels::instance()->register_hooks();
+        EngageAI_Admin_Channel_Setup::instance()->register_hooks();
     }
 
     public function register_admin_menu(): void
@@ -140,6 +142,15 @@ final class EngageAI_Plugin
             'manage_options',
             'engageai-channels',
             [EngageAI_Admin_Channels::instance(), 'render_page']
+        );
+
+        add_submenu_page(
+            'engageai-dashboard',
+            __('Set up a channel', 'engage-ai'),
+            __('Set up a channel', 'engage-ai'),
+            'manage_options',
+            'engageai-channel-setup',
+            [EngageAI_Admin_Channel_Setup::instance(), 'render_page']
         );
 
         add_submenu_page(

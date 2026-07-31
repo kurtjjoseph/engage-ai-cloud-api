@@ -471,6 +471,18 @@ class EngageAI_Api_Client
     }
 
     /**
+     * The step-by-step setup wizard for every channel: how to create it, what
+     * has to be true before it can be authorized, and how to authorize it —
+     * including live links to the page that issues an access token. Served by
+     * the API so a provider moving that page is fixed centrally.
+     * @return array|WP_Error {organization_id, organization_name, channels[]}
+     */
+    public function get_channel_setup_guide(int $org_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/channels/setup-guide');
+    }
+
+    /**
      * Starts the OAuth flow for one channel. Returns the provider consent URL
      * to send the admin's browser to; $return_url is where the callback page
      * links back to afterwards.

@@ -213,6 +213,10 @@ class EngageAI_Admin_Channels
                 <strong><?php esc_html_e('Connecting does not start posting.', 'engage-ai'); ?></strong>
                 <?php esc_html_e('Content still goes out only when you publish it from the Content Studio, unless you switch automatic posting on for a channel below.', 'engage-ai'); ?>
             </p>
+            <p style="margin:1rem 0 1.5rem;">
+                <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=engageai-channel-setup')); ?>"><?php esc_html_e('Walk me through setting one up →', 'engage-ai'); ?></a>
+                <span class="description" style="margin-left:.5rem;"><?php esc_html_e('Step by step, including where to find an access token.', 'engage-ai'); ?></span>
+            </p>
 
             <?php foreach ($channels as $channel): ?>
                 <?php $this->render_channel_card((array) $channel); ?>
@@ -237,7 +241,7 @@ class EngageAI_Admin_Channels
         $connected = !empty($channel['connected']);
         $status = (string) ($channel['status'] ?? 'not_connected');
         ?>
-        <div class="engageai-card" style="margin:1rem 0;padding:1rem 1.25rem;background:#fff;border:1px solid #dcdcde;border-radius:6px;max-width:46em;">
+        <div class="engageai-card" id="engageai-channel-<?php echo esc_attr($key); ?>" style="margin:1rem 0;padding:1rem 1.25rem;background:#fff;border:1px solid #dcdcde;border-radius:6px;max-width:46em;">
             <h2 style="margin-top:0;display:flex;align-items:center;gap:.5rem;">
                 <?php echo esc_html($label); ?>
                 <span style="font-size:.72em;font-weight:600;padding:.15em .6em;border-radius:999px;<?php echo esc_attr($connected ? 'background:#e6f4ea;color:#0f7b47;' : 'background:#f0f0f1;color:#50575e;'); ?>">

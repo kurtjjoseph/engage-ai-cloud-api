@@ -173,6 +173,91 @@ def test_another_operators_org_is_not_visible(client, db_session):
     assert client.get(f"/organizations/{org.id}/channels").status_code == 404
 
 
+# ------------------------------------------------------------- setup guide
+
+
+def test_setup_guide_covers_every_channel_with_this_orgs_own_details(client, db_session):
+    user = _make_user(db_session)
+    org = _make_org(db_session, user)
+    org.website_url = "https://grace.example"
+    db_session.commit()
+    _as(client, user)
+
+    body = client.get(f"/organizations/{org.id}/channels/setup-guide").json()
+    guide = {entry["channel"]: entry for entry in body["channels"]}
+
+    assert set(guide) == {
+        "facebook", "instagram", "linkedin", "youtube", "twitter_x", "google_business"
+    }
+    for entry in guide.values():
+        assert entry["exists_question"]
+        assert entry["create_steps"] and entry["prepare_steps"] and entry["connect_steps"]
+
+    # The org's own name and website are filled into the copy-me chips, so
+    # nobody has to translate a generic instruction into their own details.
+    chips = [
+        chip["value"]
+        for entry in guide.values()
+        for step in entry["create_steps"]
+        for chip in step.get("chips", [])
+    ]
+    assert "Grace Community Church" in chips
+    assert "https://grace.example" in chips
+
+
+def test_every_token_step_carries_a_live_link_to_where_the_token_is_issued(
+    client, db_session, monkeypatch
+):
+    # No OAuth app configured anywhere = every channel falls back to the
+    # paste-a-token route, which is exactly the path that needs the links.
+    for name in (
+        "facebook_client_id", "facebook_client_secret", "google_client_id",
+        "google_client_secret", "linkedin_client_id", "linkedin_client_secret",
+        "twitter_client_id", "twitter_client_secret",
+    ):
+        monkeypatch.setattr(providers_module.settings, name, None)
+
+    user = _make_user(db_session)
+    org = _make_org(db_session, user)
+    _as(client, user)
+
+    body = client.get(f"/organizations/{org.id}/channels/setup-guide").json()
+    for entry in body["channels"]:
+        assert entry["oauth_available"] is False
+        # The tool that issues the token is named, and linked, on the first step.
+        assert entry["token_tool"]["url"].startswith("https://")
+        links = [s["link"]["url"] for s in entry["connect_steps"] if s.get("link")]
+        assert links, f"{entry['channel']} has no link to where its token comes from"
+        assert entry["token_tool"]["url"] in links
+
+
+def test_setup_guide_reports_a_connected_channel_as_finished(
+    client, db_session, connected_facebook
+):
+    user = _make_user(db_session)
+    org = _make_org(db_session, user)
+    _as(client, user)
+    client.post(f"/organizations/{org.id}/channels/facebook/token", json={"access_token": "t"})
+
+    body = client.get(f"/organizations/{org.id}/channels/setup-guide").json()
+    facebook = next(e for e in body["channels"] if e["channel"] == "facebook")
+    assert facebook["connected"] is True
+    assert facebook["account_name"] == "Grace Community Church"
+
+
+def test_setup_guide_is_not_mistaken_for_a_channel_name(client, db_session):
+    """The guide lives at .../channels/setup-guide, one path segment away from
+    .../channels/{channel} - it must not resolve as a channel called
+    "setup-guide"."""
+    user = _make_user(db_session)
+    org = _make_org(db_session, user)
+    _as(client, user)
+
+    response = client.get(f"/organizations/{org.id}/channels/setup-guide")
+    assert response.status_code == 200
+    assert "channels" in response.json()
+
+
 # -------------------------------------------------------------- oauth flow
 
 
