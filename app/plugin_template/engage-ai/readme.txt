@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.24.0
+Stable tag: 0.25.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -26,9 +26,16 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 3. Connect with the email/password you registered with on the API (your password is used once to connect and is not stored — only the resulting session token is kept).
 4. Select or create your organization. A website URL sharpens the Analytics module's search a lot for common organization names.
 5. Under Settings > Modules, turn on Engagement, Analytics, and/or whichever side-hustle agents this organization needs.
-6. Go to Engage AI > Content Studio to create content step by step, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
+6. Go to Engage AI > Campaigns to plan a whole run of content at once, Engage AI > Content Studio to create a single piece step by step, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
 
 == Changelog ==
+
+= 0.25.0 =
+* New Campaigns page - plan a whole run of content instead of one post at a time. Say what you want it to achieve, what it's about and the dates it runs between, and Engage AI comes back with a named campaign: one idea, argued piece by piece, each piece already on the channel that suits it and the day it should go out.
+* The run is a sequence, not a pile. Each piece has a job in it - earn attention, teach, prove, make the ask, close - and is written knowing what the campaign argues and where it sits, so the pieces build on each other instead of repeating each other.
+* Nothing is fixed until you say so. The plan comes back before anything is written: untick a piece you don't want, move a date, swap the channel, rename the campaign. Then press the button once and every piece is written and quality-checked for you, one at a time, while you get on with something else.
+* Campaign pieces are ordinary drafts. Each one opens in the Content Studio for editing, the image or video, and publishing - exactly like a piece you made there yourself. Nothing is ever posted automatically.
+* Deleting a campaign never deletes the content it wrote - those drafts stay in your Content Library.
 
 = 0.24.0 =
 * New "Set up a channel" page - a step-by-step walkthrough that takes one channel from "we don't have one yet" to "Engage AI can post on it". It asks whether you already have the channel, then gives you only the steps you actually need: creating the Facebook Page, switching Instagram to a business account, claiming your place on Google Maps, and so on.

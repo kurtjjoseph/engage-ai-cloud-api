@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.24.0
+ * Version: 0.25.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.24.0');
+define('ENGAGEAI_VERSION', '0.25.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -25,6 +25,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-dashboard.php'
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-assistant.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-content.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-studio.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-campaigns.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-channels.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-channel-setup.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-cron.php';
@@ -92,6 +93,7 @@ final class EngageAI_Plugin
         EngageAI_Admin_Assistant::instance()->register_hooks();
         EngageAI_Admin_Content::instance()->register_hooks();
         EngageAI_Admin_Studio::instance()->register_hooks();
+        EngageAI_Admin_Campaigns::instance()->register_hooks();
         EngageAI_Admin_Channels::instance()->register_hooks();
         EngageAI_Admin_Channel_Setup::instance()->register_hooks();
     }
@@ -124,6 +126,15 @@ final class EngageAI_Plugin
             'manage_options',
             'engageai-studio',
             [EngageAI_Admin_Studio::instance(), 'render_page']
+        );
+
+        add_submenu_page(
+            'engageai-dashboard',
+            __('Campaigns', 'engage-ai'),
+            __('Campaigns', 'engage-ai'),
+            'manage_options',
+            'engageai-campaigns',
+            [EngageAI_Admin_Campaigns::instance(), 'render_page']
         );
 
         add_submenu_page(
@@ -214,12 +225,23 @@ final class EngageAI_Plugin
 
         // The Content Studio has its own design system (see assets/studio.css)
         // and is deliberately not styled like the rest of wp-admin, so it's
-        // only loaded on that page.
-        if (strpos($hook, 'engageai-studio') !== false) {
+        // only loaded on the pages built on it. Campaigns is one of them - it
+        // is the same workflow one level up - and adds its own layer on top.
+        $is_studio = strpos($hook, 'engageai-studio') !== false;
+        $is_campaigns = strpos($hook, 'engageai-campaigns') !== false;
+        if ($is_studio || $is_campaigns) {
             wp_enqueue_style(
                 'engageai-studio',
                 ENGAGEAI_PLUGIN_URL . 'assets/studio.css',
                 ['engageai-admin'],
+                ENGAGEAI_VERSION
+            );
+        }
+        if ($is_campaigns) {
+            wp_enqueue_style(
+                'engageai-campaigns',
+                ENGAGEAI_PLUGIN_URL . 'assets/campaigns.css',
+                ['engageai-studio'],
                 ENGAGEAI_VERSION
             );
         }

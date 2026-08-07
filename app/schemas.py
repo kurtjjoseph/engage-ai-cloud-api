@@ -138,6 +138,9 @@ class ContentOut(BaseModel):
     title: str
     input_payload: dict | None = None
     output_payload: dict
+    # The Campaign this piece was built as part of, or null - which is most of
+    # the library, since anything made one-off in the Content Studio has none.
+    campaign_id: int | None = None
     created_at: datetime | None = None
 
     class Config:

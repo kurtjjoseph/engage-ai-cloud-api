@@ -571,15 +571,22 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
         return out[:count]
 
     def draft_surface(self, org_context: dict, idea: dict, surface: Surface, goal: str,
-                      site_type: str | None) -> dict:
+                      site_type: str | None, brief: str = "") -> dict:
         """Pass 2, surface-aware. Writes the copy plus every field the surface
-        declares. Empty dict when no model is configured."""
+        declares. Empty dict when no model is configured.
+
+        `brief` is optional extra standing instruction for this one piece - the
+        Campaign Creator passes the campaign's big idea and this piece's role in
+        the arc, so a piece written as part of a run knows what the run is
+        arguing and where it sits in it. Empty for a one-off studio piece, which
+        is the normal case."""
         if not self.client:
             return {}
 
         cta_rule = ('The goal demands one clear next step - make the call to action explicit and specific.'
                     if goal in _GOALS_NEEDING_CTA else
                     'End on something that invites a response rather than a hard sell.')
+        brief_block = f"\n{_clean(brief)}\n" if _clean(brief) else ""
 
         system = f"""You are Engage AI's copywriter. Write ONE ready-to-publish piece of content. It must be usable exactly as written - never describe what could be written, and never leave a placeholder.
 
@@ -589,7 +596,7 @@ Business goal: {goal_label(goal)}. {goal_guidance(goal)}
 The idea to execute:
   headline: {idea.get('headline', '')}
   angle: {idea.get('angle', '')}
-
+{brief_block}
 {draft_instructions(surface)}
 
 {cta_rule}
@@ -605,12 +612,19 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
             return {}
         return _shape_surface_draft(data, surface, idea)
 
-    def check_surface(self, draft: dict, surface: Surface, goal: str) -> tuple[dict, dict]:
+    def check_surface(self, draft: dict, surface: Surface, goal: str,
+                      expects_cta: bool | None = None) -> tuple[dict, dict]:
         """Pass 3, surface-aware. Measures the draft against the surface
         contract and repairs everything mechanically repairable.
 
         Runs with no API key - this is arithmetic and string handling. Only
-        issues that genuinely need judgement are left for revise_surface()."""
+        issues that genuinely need judgement are left for revise_surface().
+
+        `expects_cta` overrides the goal-derived call-to-action rule for one
+        piece. The Campaign Creator sets it from the piece's role in the arc:
+        a hook is briefed NOT to ask, so holding it to the campaign's
+        leads/sales goal would flag a warning for doing exactly what it was
+        told. None (the normal case) keeps the goal-derived rule."""
         draft = json.loads(json.dumps(draft or {}))
         issues: list[dict] = []
         fixed: list[str] = []
@@ -639,8 +653,11 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
         if _PLACEHOLDER.search(body):
             issue("body", "error", "The copy still contains placeholder text - it needs the real detail.")
 
-        if goal in _GOALS_NEEDING_CTA and body and not (_CTA_HINT.search(body) or "?" in body):
-            issue("body", "warning", "No clear call to action, and this goal needs one.")
+        needs_cta = goal in _GOALS_NEEDING_CTA if expects_cta is None else expects_cta
+        if needs_cta and body and not (_CTA_HINT.search(body) or "?" in body):
+            issue("body", "warning",
+                  "No clear call to action, and this piece is the one that asks." if expects_cta
+                  else "No clear call to action, and this goal needs one.")
 
         if surface.media in ("image", "images", "document"):
             if not _clean(draft.get("image_prompt")) and not draft.get("slides"):

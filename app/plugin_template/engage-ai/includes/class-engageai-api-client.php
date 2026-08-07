@@ -339,6 +339,113 @@ class EngageAI_Api_Client
         return $this->request('GET', '/studio/' . $content_id . '/render?organization_id=' . $org_id, null, true, 30);
     }
 
+    /* ------------------------------------------------------------ campaigns */
+
+    /**
+     * The campaign pickers: the goals a campaign can be aimed at, the roles a
+     * piece can play in the arc, and every channel/surface the planner may
+     * choose from. Cached for a day - it only changes when the plugin does.
+     * @return array|WP_Error
+     */
+    public function get_campaign_options()
+    {
+        $cached = get_transient('engageai_campaign_options');
+        if (is_array($cached) && !empty($cached['roles'])) {
+            return $cached;
+        }
+        $result = $this->request('GET', '/campaigns/options');
+        if (!is_wp_error($result) && !empty($result['roles'])) {
+            set_transient('engageai_campaign_options', $result, DAY_IN_SECONDS);
+        }
+        return $result;
+    }
+
+    /**
+     * Plans a whole campaign without saving it: one big idea and one entry per
+     * piece, each carrying its surface, its role and its date. LLM-backed.
+     * @param string[] $channels empty = the planner may use any channel
+     * @return array|WP_Error {"name", "big_idea", "audience", "items": [...]}
+     */
+    public function plan_campaign(int $org_id, string $goal, string $theme, int $pieces, string $starts_on, string $ends_on, array $channels = [])
+    {
+        return $this->request('POST', '/campaigns/plan?organization_id=' . $org_id, [
+            'goal' => $goal,
+            'theme' => $theme !== '' ? $theme : null,
+            'pieces' => $pieces,
+            'starts_on' => $starts_on !== '' ? $starts_on : null,
+            'ends_on' => $ends_on !== '' ? $ends_on : null,
+            'channels' => $channels ?: null,
+        ], true, 180);
+    }
+
+    /**
+     * Saves an accepted plan as a campaign.
+     * @return array|WP_Error the saved campaign
+     */
+    public function create_campaign(int $org_id, array $plan)
+    {
+        return $this->request('POST', '/campaigns?organization_id=' . $org_id, $plan, true, 60);
+    }
+
+    /** @return array|WP_Error list of campaigns, newest first */
+    public function get_campaigns(int $org_id)
+    {
+        return $this->request('GET', '/campaigns?organization_id=' . $org_id);
+    }
+
+    /** @return array|WP_Error one campaign, including every piece and the build state */
+    public function get_campaign(int $org_id, int $campaign_id)
+    {
+        return $this->request('GET', '/campaigns/' . $campaign_id . '?organization_id=' . $org_id, null, true, 30);
+    }
+
+    /** @return array|WP_Error */
+    public function delete_campaign(int $org_id, int $campaign_id)
+    {
+        return $this->request('DELETE', '/campaigns/' . $campaign_id . '?organization_id=' . $org_id);
+    }
+
+    /**
+     * Moves a planned piece's date, swaps its surface, or rewrites its idea -
+     * only valid before the piece has been written.
+     * @return array|WP_Error the updated campaign
+     */
+    public function update_campaign_item(int $org_id, int $campaign_id, int $index, array $fields)
+    {
+        return $this->request('PATCH', '/campaigns/' . $campaign_id . '/items/' . $index . '?organization_id=' . $org_id, $fields);
+    }
+
+    /** @return array|WP_Error the updated campaign */
+    public function delete_campaign_item(int $org_id, int $campaign_id, int $index)
+    {
+        return $this->request('DELETE', '/campaigns/' . $campaign_id . '/items/' . $index . '?organization_id=' . $org_id);
+    }
+
+    /**
+     * Starts writing every piece that has no draft yet. Returns immediately -
+     * the run is one LLM call per piece, so the page polls get_campaign() for
+     * progress instead of holding the connection open.
+     * @return array|WP_Error {"status": "running"|"done", "built", "failed", "total"}
+     */
+    public function build_campaign(int $org_id, int $campaign_id)
+    {
+        return $this->request('POST', '/campaigns/' . $campaign_id . '/build?organization_id=' . $org_id, null, true, 60);
+    }
+
+    /**
+     * Writes ONE piece and waits for it - for retrying a piece the run failed
+     * on. LLM-backed, so a long timeout.
+     * @return array|WP_Error {"campaign_id", "item"}
+     */
+    public function build_campaign_item(int $org_id, int $campaign_id, int $index, bool $force = false)
+    {
+        $path = '/campaigns/' . $campaign_id . '/items/' . $index . '/build?organization_id=' . $org_id;
+        if ($force) {
+            $path .= '&force=true';
+        }
+        return $this->request('POST', $path, null, true, 180);
+    }
+
     /**
      * Asks the API to draft content and saves it as tracked content. With
      * $channel + $content_type set, drafts that content type for that channel

@@ -1,5 +1,5 @@
-from datetime import datetime
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, JSON
+from datetime import date, datetime
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 
@@ -78,6 +78,7 @@ class Organization(Base):
 
     owner = relationship("User", back_populates="organizations")
     content_items = relationship("ContentItem", back_populates="organization")
+    campaigns = relationship("Campaign", back_populates="organization")
     tickets = relationship("Ticket", back_populates="organization")
     agent_runs = relationship("AgentRun", back_populates="organization")
     analytics_snapshots = relationship("AnalyticsSnapshot", back_populates="organization")
@@ -100,6 +101,64 @@ class PasswordResetToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class Campaign(Base):
+    """One multi-piece campaign: a single goal and one big idea, executed as a
+    scheduled set of pieces across several channels.
+
+    The Content Studio builds ONE piece at a time. A campaign is the layer
+    above it: it decides what a whole run should say, on which surfaces, on
+    which days - and then hands each entry back to the studio's own passes to
+    actually be written. So the pieces a campaign produces are ordinary
+    ContentItems (see ContentItem.campaign_id): the Content Library, the
+    render, the quality check and every publish path keep working on them
+    untouched, and a campaign is only the plan that grouped them.
+
+    The plan itself lives in `plan` rather than a second table, because an
+    entry is edited (its date moved, its surface swapped, the whole entry
+    dropped) far more often before it is built than after - and until it is
+    built there is nothing to relate to. Shape, one dict per piece:
+
+        {"index": 0, "surface": "instagram.carousel", "channel": "instagram",
+         "role": "hook", "headline": ..., "angle": ..., "why": ...,
+         "scheduled_on": "2026-08-12",
+         "status": "planned"|"building"|"drafted"|"failed",
+         "content_id": int|None, "error": str|None, "quality": {...}|None}
+    """
+
+    __tablename__ = "campaigns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    # One of services/studio_formats.GOALS - the whole campaign shares it, which
+    # is what makes the pieces read as one run rather than a pile of posts.
+    goal: Mapped[str] = mapped_column(String(50), default="awareness")
+    # The operator's own steer ("the autumn open evening", "we have 3 slots
+    # left") - what the campaign is actually about.
+    theme: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The single argument every piece serves, written by the planner.
+    big_idea: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audience: Mapped[str | None] = mapped_column(Text, nullable=True)
+    starts_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # The channels the operator allowed the planner to use. None = all of them.
+    channels: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # "planned" (nothing written yet) | "building" | "ready" (every piece has a
+    # draft) | "partial" (built, but something failed) | "archived".
+    status: Mapped[str] = mapped_column(String(20), default="planned", index=True)
+    plan: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # {"status": "running"|"done"|"failed"|"none", "built": int, "failed": int,
+    #  "total": int, "started_at": iso, "finished_at": iso, "error": str|None}
+    # Written by the background builder; a run still "running" long after it
+    # started is reported failed, since background tasks don't survive a
+    # redeploy and a stuck spinner is worse than a retry button.
+    build: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    organization = relationship("Organization", back_populates="campaigns")
+    content_items = relationship("ContentItem", back_populates="campaign")
+
+
 class ContentItem(Base):
     __tablename__ = "content_items"
 
@@ -109,9 +168,15 @@ class ContentItem(Base):
     title: Mapped[str] = mapped_column(String(255))
     input_payload: Mapped[dict] = mapped_column(JSON)
     output_payload: Mapped[dict] = mapped_column(JSON)
+    # Set when this piece was built as part of a Campaign (routers/campaigns.py).
+    # Null for everything made one-off in the Content Studio, which is most of
+    # the library - so every reader must treat null as "not in a campaign"
+    # rather than as an error.
+    campaign_id: Mapped[int | None] = mapped_column(ForeignKey("campaigns.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="content_items")
+    campaign = relationship("Campaign", back_populates="content_items")
     publications = relationship("Publication", back_populates="content_item")
 
 

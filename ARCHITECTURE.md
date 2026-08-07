@@ -10,10 +10,9 @@ An AI Engagement Director for churches and mission-driven organizations. Not jus
 
 - **Auth** — JWT register/login (`routers/auth.py`, `services/security.py`)
 - **Organizations** — per-user church/org profiles with mission, tone, audience, colors, ministries, recurring schedule, locations, speakers (`routers/organizations.py`, `models/entities.py`)
-- **Campaigns** — three generators, each calling OpenAI (`gpt-4.1-mini`) with the org's memory + task-specific input, returning structured JSON (`routers/campaigns.py`, `services/ai.py`):
-  - `POST /campaigns/event` — event campaigns
-  - `POST /campaigns/announcements` — weekly announcements
-  - `POST /campaigns/sermon` — sermon engagement content
+- **Campaigns** (`routers/campaigns.py`) — two things, and they are not the same feature:
+  - **The Campaign Creator** (see §3.11) — a whole run of content planned as one arc and built piece by piece through the studio's own passes (`services/campaign.py`): `POST /campaigns/plan` → `POST /campaigns` → `POST /campaigns/{id}/build`
+  - **The original generators** — three one-shot church generators, each calling OpenAI (`gpt-4.1-mini`) with the org's memory + task-specific input, returning structured JSON (`services/ai.py`). Untouched and still routed, because installed plugins call them: `POST /campaigns/event`, `POST /campaigns/announcements`, `POST /campaigns/sermon`
 - **Content library** — every generated item is saved and retrievable per org (`routers/content.py`)
 - **Deployment scaffolding** — `Dockerfile`, `docker-compose.yml` (API + Postgres together), `render.yaml` (unused now, see §4)
 
@@ -164,6 +163,24 @@ reconnect instead of raising.
 Profile fetch media by URL rather than accepting bytes, so those publishes mint
 a signed, single-asset, 15-minute public URL (`services/media_links.py`). It was
 that or not support the two channels.
+
+### 3.11 Campaign Creator: the run is the unit, not the post
+
+The Content Studio (§3.9) answers "what should this post say?". It never answered the question above it — "what should the next three weeks say, and in what order?" — and that is the question that actually moves a number: a hook earns attention, a teach piece spends it on something useful, a proof piece makes the claim believable, an offer asks, a recap closes. Posted alone each underperforms; posted in that order against one argument they compound. So the planner is asked for the **arc**, which is the only thing it does that `studio.ideas()` doesn't.
+
+**A campaign produces ordinary ContentItems** (`Campaign` + `ContentItem.campaign_id` in `models/entities.py`). Deliberately not a parallel content system: the library, the quality check, the media pass and every publish path work on a campaign piece untouched, and the campaign is only the plan that grouped them. Each piece is written by `StudioService.draft_surface`/`check_surface` — the same code as a one-off — plus one campaign-only addition, the `brief`: the big idea and this piece's role in the arc, so a piece knows what run it belongs to.
+
+**Plan and build are separate steps** (`POST /campaigns/plan` → `POST /campaigns` → `POST /campaigns/{id}/build`). A plan is one model call and cheap to throw away; a build is one call per piece and produces real drafts. Everything editable — dates, surfaces, which pieces exist at all — is editable in between, on a plan that hasn't cost anything yet.
+
+**The plan lives in a JSON column, not a second table.** An entry is moved, swapped and dropped far more often *before* it is built than after, and until it is built there is nothing to relate to. Once built, the piece is a real row and the plan entry just points at it.
+
+**Everything after the model call is deterministic** (`CampaignPlanner.shape_items`): surfaces resolve against the real catalog (an invented surface id degrades to an allowed one rather than failing the plan), roles degrade to `hook`, duplicates are dropped, and days are clamped into the operator's own window. The same function re-shapes an operator-edited plan on the way in, so a hand-edited plan gets the same guarantees the model's did — with one asymmetry that matters: a piece carrying `scheduled_on` keeps it, so the plan→save round trip can't silently reschedule a run the operator arranged.
+
+**Building is a background job, for the same reason renders are** (§3.9): a five-piece build is five model calls, minutes past any sensible HTTP timeout. `POST /campaigns/{id}/build` returns `running` and the plugin polls `GET /campaigns/{id}`; a build stuck `running` past 30 minutes is reported failed. One piece that fails is recorded as failed *on that piece* and the run continues — one bad piece must not abandon four good ones — and it can be retried on its own.
+
+**Deleting a campaign never deletes its content.** The drafts are real work, possibly already published; they are unlinked from the campaign, not removed with it.
+
+**Nothing publishes.** A finished campaign is a set of drafts, each of which goes out through the same explicit, per-piece publish the studio already requires.
 
 ## 4. Deployment scaffolding
 

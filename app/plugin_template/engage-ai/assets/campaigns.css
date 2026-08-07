@@ -1,0 +1,222 @@
+/*
+ * Campaign Creator.
+ *
+ * Loaded alongside studio.css and scoped inside .engageai-studio, so it
+ * inherits the same tokens (one ink, one muted, one line, one radius) and the
+ * two pages read as one product. Only what a campaign needs and the studio
+ * doesn't lives here: the campaign cards, and the run - a vertical list of
+ * pieces with the date on the left, which is the whole point of a campaign
+ * being a sequence rather than a pile.
+ */
+
+/* ------------------------------------------------------------- campaign list */
+.eac-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+.engageai-campaigns .eac-card {
+    display: block;
+    padding: 22px 24px;
+    background: var(--eas-surface);
+    border: 1px solid var(--eas-line);
+    border-radius: var(--eas-radius);
+    color: var(--eas-ink);
+    text-decoration: none;
+    transition: border-color .12s ease;
+}
+
+.engageai-campaigns .eac-card:hover {
+    border-color: var(--eas-faint);
+    color: var(--eas-ink);
+}
+
+.eac-card__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.eac-card__head h2,
+.eac-card__head h3 {
+    margin: 0;
+    padding: 0;
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+.eac-card__idea {
+    margin: 10px 0 0;
+    color: var(--eas-muted);
+}
+
+/* -------------------------------------------------------------- the big idea */
+.eac-idea {
+    margin: 18px 0;
+    padding: 16px 18px;
+    background: var(--eas-canvas);
+    border-radius: var(--eas-radius-sm);
+}
+
+.eac-idea p {
+    margin: 0;
+    font-size: 16px;
+}
+
+/* ----------------------------------------------------------------- channels */
+.eac-channels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.eac-channel {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 15px;
+    border: 1px solid var(--eas-line);
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.eac-channel:has(input:checked) {
+    border-color: var(--eas-accent);
+    background: var(--eas-canvas);
+}
+
+/* ---------------------------------------------------------------- the run */
+.eac-piece {
+    display: flex;
+    gap: 20px;
+    padding: 22px 0;
+    border-top: 1px solid var(--eas-line);
+}
+
+.eac-piece:first-of-type {
+    border-top: 0;
+    padding-top: 4px;
+}
+
+.eac-piece__keep,
+.eac-piece__when {
+    flex: none;
+    width: 128px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.eac-piece__keep {
+    width: auto;
+    padding-top: 3px;
+}
+
+.eac-piece__date {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--eas-muted);
+}
+
+.eac-piece__body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.eac-piece__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.eac-piece__head h3 {
+    margin: 0;
+    padding: 0;
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+.eac-piece__body p {
+    margin: 8px 0 0;
+}
+
+.eac-piece__error {
+    color: var(--eas-bad);
+    font-size: 14px;
+}
+
+/* A piece nobody has written yet is quieter than one that is ready. */
+.eac-piece--planned .eac-piece__body h3 {
+    color: var(--eas-muted);
+}
+
+.eac-role {
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+}
+
+.eac-piece__actions,
+.eac-piece__controls,
+.eac-piece__edit {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.eac-piece__actions form,
+.eac-piece__edit {
+    margin: 0;
+}
+
+.eac-piece__controls label,
+.eac-piece__edit label {
+    flex: 0 1 200px;
+    min-width: 0;
+}
+
+.eac-piece__controls .eas-label,
+.eac-piece__edit .eas-label {
+    margin-bottom: 5px;
+}
+
+/* ----------------------------------------------------------------- progress */
+.eac-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    padding: 14px 18px;
+    background: var(--eas-canvas);
+    border-radius: var(--eas-radius-sm);
+    color: var(--eas-muted);
+    font-size: 14px;
+}
+
+.eac-progress[hidden] {
+    display: none;
+}
+
+@media (max-width: 782px) {
+    .eac-piece {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .eac-piece__when {
+        width: auto;
+        flex-direction: row;
+        align-items: center;
+    }
+}

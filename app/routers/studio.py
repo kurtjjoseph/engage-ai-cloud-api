@@ -390,10 +390,14 @@ def studio_check(
 
     surface = _surface_of(state)
     if surface is not None:
-        draft, report = studio.check_surface(_surface_draft(output, surface), surface, goal)
+        # A campaign piece records what its role in the arc expects of it
+        # (routers/campaigns.py); a one-off piece has no such key and falls
+        # back to the goal-derived rule.
+        expects_cta = state.get("expects_cta")
+        draft, report = studio.check_surface(_surface_draft(output, surface), surface, goal, expects_cta)
         if revise and report["issues"]:
             revised = studio.revise_surface(draft, surface, report, _org_context(org))
-            draft, report = studio.check_surface(revised, surface, goal)
+            draft, report = studio.check_surface(revised, surface, goal, expects_cta)
             report["revised"] = True
         state["quality"] = report
         state["step"] = "checked"
@@ -445,7 +449,8 @@ def studio_edit(
         for key, value in (payload.fields or {}).items():
             if key in declared:
                 draft[key] = value
-        draft, report = studio.check_surface(draft, surface, state.get("goal", DEFAULT_GOAL))
+        draft, report = studio.check_surface(draft, surface, state.get("goal", DEFAULT_GOAL),
+                                             state.get("expects_cta"))
         state["quality"] = report
         state["step"] = "checked"
         _write_surface(item, draft, state)
