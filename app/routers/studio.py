@@ -38,6 +38,11 @@ from app.services.studio_formats import (
     goals_catalog,
     layout_for,
 )
+from app.services.surfaces import (
+    catalog as surfaces_catalog,
+    resolve as resolve_surface,
+    surface_for,
+)
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
@@ -69,6 +74,19 @@ class DraftRequest(BaseModel):
     goal: str = DEFAULT_GOAL
 
 
+class SurfaceIdeasRequest(BaseModel):
+    goal: str = DEFAULT_GOAL
+    channels: list[str] | None = None
+    notes: str | None = None
+    count: int = 3
+
+
+class SurfaceDraftRequest(BaseModel):
+    idea: Idea
+    surface: str  # "channel.key", e.g. "instagram.carousel"
+    goal: str = DEFAULT_GOAL
+
+
 class EditRequest(BaseModel):
     body: str | None = None
     hashtags: list[str] | None = None
@@ -76,6 +94,9 @@ class EditRequest(BaseModel):
     subhead: str | None = None
     cta: str | None = None
     narrations: list[str] | None = None
+    # Surface pieces: any declared field by name, e.g. {"options": [...],
+    # "coupon_code": "SPRING20"}. Ignored on format-first pieces.
+    fields: dict | None = None
 
 
 def _org_context(org) -> dict:
@@ -138,6 +159,140 @@ def _write(item: ContentItem, draft: dict, state: dict) -> dict:
     item.output_payload = output
     item.title = draft.get("title") or item.title
     return output
+
+
+# --------------------------------------------------------------- surface mode
+#
+# A studio piece is either format-first (the original three formats) or
+# surface-first (a named post object on a channel). Which one it is, is decided
+# at draft time and recorded in the studio state; every later pass reads it back
+# with _surface_of(), so check / edit / render are shared and the plugin that
+# only knows about formats keeps working untouched.
+
+
+def _surface_of(state: dict):
+    """The Surface this piece was drafted against, or None if it's a
+    format-first piece from the original workflow."""
+    return resolve_surface(state.get("surface") or "")
+
+
+def _surface_draft(output: dict, surface) -> dict:
+    """Reassembles the stored draft for a surface piece."""
+    draft = {key: output.get(key) for key in ("title", "body", "hashtags", "image_prompt", "image_alt")}
+    stored = output.get("fields") or {}
+    for spec in surface.fields:
+        draft[spec.key] = stored.get(spec.key)
+    return draft
+
+
+def _write_surface(item: ContentItem, draft: dict, state: dict) -> dict:
+    """Flattens a surface draft onto the ContentItem. The declared fields live
+    together under "fields" so the shape is self-describing, and body/hashtags/
+    image_prompt/slides are mirrored at the top level so the existing Content
+    library and the WordPress path keep reading what they already read."""
+    surface = surface_for(state["channel"], state["surface_key"])
+    output = dict(item.output_payload or {})
+    output.update({
+        "studio": state,
+        "channel": surface.channel,
+        "surface": surface.id,
+        "content_type_key": surface.key,
+        "content_type_label": surface.label,
+        "media": surface.media,
+        "publish": surface.publish,
+        "title": draft.get("title", ""),
+        "body": draft.get("body", ""),
+        "hashtags": draft.get("hashtags", []),
+        "image_prompt": draft.get("image_prompt", ""),
+        "image_alt": draft.get("image_alt", ""),
+        "fields": {spec.key: draft.get(spec.key) for spec in surface.fields},
+        "slides": draft.get("slides") or [],
+        "angle": state.get("idea", {}).get("angle", ""),
+    })
+    if surface.channel == "website":
+        output["website_post"] = {"title": draft.get("title", ""), "body_html": draft.get("body", "")}
+    item.output_payload = output
+    item.title = draft.get("title") or item.title
+    return output
+
+
+@router.get("/surfaces")
+def studio_surfaces(user: User = Depends(get_current_user)):
+    """Every post object every channel accepts, with the spec and the exact
+    fields each one is drafted against - and, per surface, whether Engage AI
+    can publish it for you today or hands you the file to post yourself."""
+    return {"goals": goals_catalog(), **surfaces_catalog()}
+
+
+@router.post("/surfaces/ideas")
+def studio_surface_ideas(
+    organization_id: int,
+    payload: SurfaceIdeasRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Pass 1, surface-aware: a goal in, ideas out - each already naming the
+    exact surface it should be published on. Nothing is saved."""
+    org = get_owned_org(organization_id, db, user)
+    ideas = studio.surface_ideas(_org_context(org), payload.goal, _site_type(org),
+                                 payload.channels, payload.notes, payload.count)
+    if not ideas:
+        raise HTTPException(
+            status_code=503,
+            detail="No ideas could be generated (is ANTHROPIC_API_KEY configured?). Try again.",
+        )
+    return {"goal": payload.goal, "ideas": ideas}
+
+
+@router.post("/surfaces/draft", response_model=ContentOut)
+def studio_surface_draft(
+    organization_id: int,
+    payload: SurfaceDraftRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Pass 2 (+ pass 3), surface-aware. Writes the copy and every field the
+    surface declares - a Google Business offer gets its coupon code and expiry,
+    an X thread gets its parts, a poll gets its options - then runs the same
+    deterministic check over all of them before saving."""
+    org = get_owned_org(organization_id, db, user)
+    surface = resolve_surface(payload.surface)
+    if surface is None:
+        raise HTTPException(status_code=400, detail=f"Unknown surface '{payload.surface}'.")
+    idea = payload.idea.model_dump()
+
+    draft = studio.draft_surface(_org_context(org), idea, surface, payload.goal, _site_type(org))
+    if not draft or not draft.get("body"):
+        raise HTTPException(
+            status_code=503,
+            detail="The copy couldn't be written (is ANTHROPIC_API_KEY configured?). Try again.",
+        )
+    draft, report = studio.check_surface(draft, surface, payload.goal)
+
+    state = {
+        "version": 2,
+        "goal": payload.goal,
+        "idea": idea,
+        "surface": surface.id,
+        "surface_key": surface.key,
+        "channel": surface.channel,
+        "spec": surface.as_dict(),
+        "step": "checked",
+        "quality": report,
+    }
+    item = ContentItem(
+        organization_id=org.id,
+        content_type=surface.channel,
+        title=draft.get("title") or idea["headline"],
+        input_payload={"source": "studio", "goal": payload.goal, "channel": surface.channel,
+                       "surface": surface.id, "idea": idea, "site_type": _site_type(org)},
+        output_payload={},
+    )
+    _write_surface(item, draft, state)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 @router.get("/catalog")
@@ -230,8 +385,23 @@ def studio_check(
     org = get_owned_org(organization_id, db, user)
     item = _get_item(content_id, org, db)
     state = _studio_state(item)
-    layout = layout_for(state["channel"], state["format"])
+    goal = state.get("goal", DEFAULT_GOAL)
     output = item.output_payload or {}
+
+    surface = _surface_of(state)
+    if surface is not None:
+        draft, report = studio.check_surface(_surface_draft(output, surface), surface, goal)
+        if revise and report["issues"]:
+            revised = studio.revise_surface(draft, surface, report, _org_context(org))
+            draft, report = studio.check_surface(revised, surface, goal)
+            report["revised"] = True
+        state["quality"] = report
+        state["step"] = "checked"
+        _write_surface(item, draft, state)
+        db.commit()
+        return {"content_id": item.id, "quality": report}
+
+    layout = layout_for(state["channel"], state["format"])
     draft = {k: output.get(k) for k in ("title", "body", "hashtags", "image_prompt", "image_alt", "overlay", "slides")}
 
     draft, report = studio.check(draft, layout, state.get("goal", DEFAULT_GOAL))
@@ -260,9 +430,30 @@ def studio_edit(
     org = get_owned_org(organization_id, db, user)
     item = _get_item(content_id, org, db)
     state = _studio_state(item)
-    layout = layout_for(state["channel"], state["format"])
     output = item.output_payload or {}
 
+    surface = _surface_of(state)
+    if surface is not None:
+        draft = _surface_draft(output, surface)
+        if payload.body is not None:
+            draft["body"] = payload.body
+        if payload.hashtags is not None:
+            draft["hashtags"] = payload.hashtags
+        # Only fields this surface actually declares - an edit can't smuggle in
+        # a key the check knows nothing about.
+        declared = {spec.key for spec in surface.fields}
+        for key, value in (payload.fields or {}).items():
+            if key in declared:
+                draft[key] = value
+        draft, report = studio.check_surface(draft, surface, state.get("goal", DEFAULT_GOAL))
+        state["quality"] = report
+        state["step"] = "checked"
+        _write_surface(item, draft, state)
+        db.commit()
+        db.refresh(item)
+        return item
+
+    layout = layout_for(state["channel"], state["format"])
     draft = {k: output.get(k) for k in ("title", "body", "hashtags", "image_prompt", "image_alt", "overlay", "slides")}
     if payload.body is not None:
         draft["body"] = payload.body
@@ -303,6 +494,42 @@ def _set_render(db: Session, item: ContentItem, patch: dict) -> dict:
     return render
 
 
+def _render_surface(output: dict, surface, fallback_title: str) -> tuple[list[tuple[bytes, str]], str, str]:
+    """Produces the file(s) for a surface piece.
+
+    Returns (results, kind, prompt). `results` is a list because a carousel is
+    genuinely N files - everything else returns one, or none if the render
+    couldn't produce anything."""
+    fields = output.get("fields") or {}
+    slides = output.get("slides") or []
+    prompt = str(output.get("image_prompt") or "").strip()
+    width = surface.width or 1080
+    height = surface.height or 1080
+
+    if surface.render == "slideshow":
+        narration = " ".join(str(s.get("narration") or "") for s in slides)[:500]
+        result = renderer.render_slideshow(slides, width, height,
+                                           surface.seconds or VIDEO_SECONDS,
+                                           max_slides=max(4, len(slides)))
+        return ([result] if result else []), "video", narration
+
+    if surface.render == "carousel":
+        return renderer.render_carousel(slides, width, height), "image", prompt
+
+    if surface.render == "document":
+        result = renderer.render_document(slides, width, height)
+        return ([result] if result else []), "document", prompt
+
+    if surface.render == "text_image":
+        headline = str(fields.get(surface.headline_field) or "") if surface.headline_field else ""
+        subhead = str(fields.get(surface.subhead_field) or "") if surface.subhead_field else ""
+        cta = str(fields.get("cta_label") or "").replace("_", " ").title()
+        return ([renderer.render_text_image(prompt, headline or fallback_title, subhead, cta, width, height)],
+                "image", prompt)
+
+    return [renderer.render_post_image(prompt, width, height)], "image", prompt
+
+
 def _execute_render(content_id: int, organization_id: int) -> None:
     """The actual render, on a background worker with its own session.
 
@@ -318,6 +545,39 @@ def _execute_render(content_id: int, organization_id: int) -> None:
             return
         output = item.output_payload or {}
         state = output.get("studio") or {}
+
+        surface = resolve_surface(state.get("surface") or "")
+        if surface is not None:
+            results, kind, prompt = _render_surface(output, surface, item.title or "")
+            if not results:
+                _set_render(db, item, {"status": "failed",
+                                       "error": "The media couldn't be produced. Try again."})
+                return
+            asset_ids = []
+            for data, mime in results:
+                asset = MediaAsset(organization_id=organization_id, content_item_id=item.id,
+                                   kind=kind, mime=mime, prompt=prompt, data=data)
+                db.add(asset)
+                db.commit()
+                db.refresh(asset)
+                asset_ids.append(asset.id)
+
+            output = dict(item.output_payload or {})
+            state = dict(output.get("studio") or {})
+            state["step"] = "rendered"
+            state["render"] = {"status": "done", "kind": kind, "asset_id": asset_ids[0],
+                               "asset_ids": asset_ids, "mime": results[0][1],
+                               "width": surface.width, "height": surface.height,
+                               "pages": len(asset_ids) if surface.render == "carousel" else None,
+                               "seconds": surface.seconds if kind == "video" else None,
+                               "finished_at": datetime.utcnow().isoformat()}
+            output["studio"] = state
+            output[f"{kind}_asset_id"] = asset_ids[0]
+            output[f"{kind}_asset_ids"] = asset_ids
+            item.output_payload = output
+            db.commit()
+            return
+
         layout = layout_for(state.get("channel", ""), state.get("format", ""))
 
         if layout.format == "video_slideshow":
@@ -396,20 +656,34 @@ def studio_render(
     org = get_owned_org(organization_id, db, user)
     item = _get_item(content_id, org, db)
     state = _studio_state(item)
-    layout = layout_for(state["channel"], state["format"])
     output = item.output_payload or {}
 
-    if layout.format == "video_slideshow" and not (output.get("slides") or []):
-        raise HTTPException(status_code=400, detail="There are no slides to render yet.")
-    if layout.format != "video_slideshow" and not str(output.get("image_prompt") or "").strip():
-        raise HTTPException(status_code=400, detail="There is no image prompt to render.")
+    surface = _surface_of(state)
+    if surface is not None:
+        if surface.render == "none":
+            raise HTTPException(
+                status_code=400,
+                detail=f"A {surface.label.lower()} has no file to render - the copy is the whole post.",
+            )
+        if surface.render in ("slideshow", "carousel", "document") and not (output.get("slides") or []):
+            raise HTTPException(status_code=400, detail="There are no slides to render yet.")
+        if surface.render in ("post_image", "text_image") and not str(output.get("image_prompt") or "").strip():
+            raise HTTPException(status_code=400, detail="There is no image prompt to render.")
+        media_kind = {"slideshow": "video", "document": "document"}.get(surface.render, "image")
+    else:
+        layout = layout_for(state["channel"], state["format"])
+        if layout.format == "video_slideshow" and not (output.get("slides") or []):
+            raise HTTPException(status_code=400, detail="There are no slides to render yet.")
+        if layout.format != "video_slideshow" and not str(output.get("image_prompt") or "").strip():
+            raise HTTPException(status_code=400, detail="There is no image prompt to render.")
+        media_kind = FORMATS[layout.format]["media"]
 
     current = _render_state(item)
     if current.get("status") == "running":
         return {"content_id": item.id, **current}
 
     render = _set_render(db, item, {"status": "running", "error": None, "asset_id": None,
-                                    "kind": FORMATS[layout.format]["media"],
+                                    "kind": media_kind,
                                     "started_at": datetime.utcnow().isoformat()})
     background_tasks.add_task(_execute_render, item.id, org.id)
     return {"content_id": item.id, **render}
@@ -430,6 +704,10 @@ def studio_render_status(
     render = _render_state(item)
     if render.get("status") == "done" and render.get("asset_id"):
         render["url"] = f"/content/asset/{render['asset_id']}"
+        # A carousel is several files; the list is the real answer and "url" is
+        # kept as its first page so older callers don't break.
+        if render.get("asset_ids"):
+            render["urls"] = [f"/content/asset/{asset_id}" for asset_id in render["asset_ids"]]
     return {"content_id": item.id, **render}
 
 

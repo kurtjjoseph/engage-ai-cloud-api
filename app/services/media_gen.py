@@ -282,11 +282,16 @@ class StudioRenderer:
         return _encode(self.image_gen.generate_pil(prompt, width, height))
 
     def render_text_image(self, prompt: str, headline: str, subhead: str = "", cta: str = "",
-                          width: int = 1080, height: int = 1350) -> tuple[bytes, str]:
+                          width: int = 1080, height: int = 1350,
+                          background: Image.Image | None = None) -> tuple[bytes, str]:
         """Format 2: the headline set ON the image. The background is darkened
         and gently blurred, the headline is centred and auto-sized to fill the
-        space without ever overflowing it, and the CTA sits in a pill below."""
-        img = _scrim(self.image_gen.generate_pil(prompt, width, height), strength=0.46, blur=width / 360)
+        space without ever overflowing it, and the CTA sits in a pill below.
+
+        `background` lets a caller that already fetched an image (a carousel
+        batching all its pages through generate_many) skip the fetch."""
+        source = background if background is not None else self.image_gen.generate_pil(prompt, width, height)
+        img = _scrim(_cover(source, width, height), strength=0.46, blur=width / 360)
         draw = ImageDraw.Draw(img)
         margin = int(width * 0.10)
         box_width = width - margin * 2
@@ -339,8 +344,62 @@ class StudioRenderer:
                       font=cta_font, fill=(17, 24, 39))
         return _encode(img)
 
+    # -------------------------------------------------------------- carousels
+    #
+    # A carousel and a LinkedIn document are the same artwork with two
+    # different containers - N composed pages, then either N JPEGs or one PDF.
+    # Both go through one page builder so a deck can never look different in
+    # one container than the other.
+
+    def _carousel_pages(self, slides: list[dict], width: int, height: int,
+                        max_pages: int = 10) -> list[Image.Image]:
+        """One composed page per slide: the headline set large, its supporting
+        line under it, and a swipe affordance on every page but the last."""
+        pages = [s for s in (slides or [])
+                 if isinstance(s, dict) and str(s.get("headline") or "").strip()][:max_pages]
+        if not pages:
+            return []
+
+        # One batched fetch for the whole deck: the keyless generator serves
+        # one request at a time, so this is where the budget is spent.
+        backgrounds = self.image_gen.generate_many(
+            [str(s.get("image_prompt") or s.get("headline") or "").strip() for s in pages],
+            width, height,
+        )
+
+        composed: list[Image.Image] = []
+        for index, (page, background) in enumerate(zip(pages, backgrounds), start=1):
+            data, _ = self.render_text_image(
+                "",
+                str(page.get("headline") or ""),
+                str(page.get("body") or ""),
+                "Swipe" if index < len(pages) else "",
+                width, height,
+                background=background,
+            )
+            composed.append(Image.open(io.BytesIO(data)).convert("RGB"))
+        return composed
+
+    def render_carousel(self, slides: list[dict], width: int = 1080,
+                        height: int = 1350) -> list[tuple[bytes, str]]:
+        """Format 4: a swipeable deck, one image file per page. Instagram
+        carousels and LinkedIn multi-image posts both take it this way."""
+        return [_encode(page) for page in self._carousel_pages(slides, width, height)]
+
+    def render_document(self, slides: list[dict], width: int = 1080,
+                        height: int = 1350) -> tuple[bytes, str] | None:
+        """Format 5: the same deck as one real multi-page PDF, which is what a
+        LinkedIn document post takes. Returns None if there are no pages."""
+        pages = self._carousel_pages(slides, width, height, max_pages=12)
+        if not pages:
+            return None
+        buffer = io.BytesIO()
+        pages[0].save(buffer, format="PDF", save_all=True, append_images=pages[1:], resolution=150.0)
+        return buffer.getvalue(), "application/pdf"
+
     def render_slideshow(self, slides: list[dict], width: int = 720, height: int = 1280,
-                         total_seconds: float = 8.0, fps: int = 24) -> tuple[bytes, str] | None:
+                         total_seconds: float = 8.0, fps: int = 24,
+                         max_slides: int = 8) -> tuple[bytes, str] | None:
         """Format 3: an 8-second vertical video.
 
         Each slide is a background under a slow zoom, with its narration line
@@ -355,7 +414,7 @@ class StudioRenderer:
         slides = [s for s in (slides or []) if isinstance(s, dict) and str(s.get("narration") or "").strip()]
         if not slides:
             return None
-        slides = slides[:6]
+        slides = slides[:max_slides]
 
         frames_total = max(fps, int(round(total_seconds * fps)))
         per_slide = max(1, frames_total // len(slides))
