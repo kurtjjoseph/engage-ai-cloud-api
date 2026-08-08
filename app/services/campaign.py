@@ -66,6 +66,17 @@ DEFAULT_PIECES = 5
 DEFAULT_WINDOW_DAYS = 14
 
 
+class PlanFailed(RuntimeError):
+    """A campaign that couldn't be planned, and WHY.
+
+    Four different things fail here - no API key, the model call itself, a
+    reply that isn't parseable JSON, and a reply that parses to nothing usable -
+    and they need four different fixes. Reporting them all as "is
+    ANTHROPIC_API_KEY configured?" sent the operator to check an environment
+    variable that was already fine. The message is shown verbatim to the
+    operator, so it says what happened and what to do about it."""
+
+
 def _clean(value) -> str:
     return str(value or "").strip()
 
@@ -123,12 +134,16 @@ class CampaignPlanner:
         `count` pieces, each already carrying its surface, its role in the arc
         and the day it goes out.
 
-        Returns {} when no model is configured - the caller reports that as
-        "try again" rather than saving an empty campaign."""
+        Raises PlanFailed, with the actual reason, rather than returning an
+        empty campaign - every failure here is one the operator can act on, but
+        only if they are told which one it was."""
         count = max(MIN_PIECES, min(int(count or DEFAULT_PIECES), MAX_PIECES))
         start, end = window(starts_on, ends_on, today)
         if not self.client:
-            return {}
+            raise PlanFailed(
+                "No ANTHROPIC_API_KEY is set on the API, so nothing can be written. "
+                "Set it in the Render dashboard and redeploy."
+            )
 
         allowed = [s for s in SURFACES if not channels or s.channel in channels]
         if not allowed:
@@ -171,13 +186,14 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
         user = {"organization": org_context, "goal": goal, "theme": _clean(theme) or None,
                 "site_type": site_type, "pieces": count,
                 "window": {"starts_on": start.isoformat(), "ends_on": end.isoformat(), "days": days}}
-        data = self._json_call(system, user, max_tokens=4096)
-        if not isinstance(data, dict):
-            return {}
+        data = self._json_call(system, user, max_tokens=8192)
 
         items = self.shape_items(data.get("pieces"), allowed, count, start, end)
         if not items:
-            return {}
+            raise PlanFailed(
+                "The plan came back with no usable pieces. Try again, or give the "
+                "campaign a more specific subject to work from."
+            )
         return {
             "name": _clean(data.get("name")) or f"{goal_label(goal)} campaign",
             "big_idea": _clean(data.get("big_idea")),
@@ -265,8 +281,12 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
 
     # ------------------------------------------------------------------- util
     def _json_call(self, system: str, user: dict, max_tokens: int) -> dict:
-        """One Claude call returning parsed JSON, or {} on any failure - a plan
-        that can't parse its own output must not 500 the request."""
+        """One Claude call returning parsed JSON.
+
+        Raises PlanFailed naming what went wrong instead of returning {}: the
+        model refusing, the account being out of credit, a rate limit and a
+        truncated reply are four different problems with four different fixes,
+        and the operator can only act on the one they are actually having."""
         try:
             response = self.client.messages.create(
                 model=settings.anthropic_model,
@@ -274,14 +294,29 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
                 system=system,
                 messages=[{"role": "user", "content": json.dumps(user)}],
             )
-        except Exception:  # noqa: BLE001 - surfaced to the operator as "try again"
-            return {}
+        except Exception as exc:  # noqa: BLE001 - reported verbatim, not swallowed
+            raise PlanFailed(
+                f"The model call failed ({type(exc).__name__}): {str(exc)[:300]}"
+            ) from exc
+
         text = "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
+        if not text.strip():
+            raise PlanFailed("The model returned nothing. Try again.")
+        # A reply cut off at the token limit is the one parse failure with an
+        # obvious cause, so it is named rather than reported as bad JSON.
+        if getattr(response, "stop_reason", None) == "max_tokens":
+            raise PlanFailed(
+                "The plan was cut off before it finished. Try again with fewer pieces."
+            )
         try:
             data = extract_json(text)
         except (json.JSONDecodeError, ValueError):
-            return {}
-        return data if isinstance(data, dict) else {}
+            raise PlanFailed(
+                f"The model's reply couldn't be read as a plan. It began: {text.strip()[:160]}"
+            ) from None
+        if not isinstance(data, dict):
+            raise PlanFailed("The model's reply wasn't a plan object. Try again.")
+        return data
 
 
 def role_brief(role: str) -> str:

@@ -57,4 +57,16 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    """Liveness, plus whether the writing features can actually work.
+
+    Every generator on this API needs an Anthropic key, and when one is missing
+    the failure surfaces deep inside a feature ("the campaign couldn't be
+    planned") where it reads like a bug in that feature. This says so up front,
+    without exposing the key itself - a boolean and a public model name."""
+    return {
+        "status": "healthy",
+        "ai": {
+            "key_configured": bool(settings.anthropic_api_key),
+            "model": settings.anthropic_model,
+        },
+    }

@@ -168,12 +168,78 @@ def test_plan_returns_an_arc_scheduled_inside_the_window(client, db_session, mon
     assert all(i["channel"] == i["surface"].split(".")[0] for i in items)
 
 
-def test_plan_without_a_model_is_a_service_error_not_an_empty_campaign(client, db_session, monkeypatch):
+def test_every_way_planning_fails_says_which_one_it_was(client, db_session, monkeypatch):
+    """Four different failures need four different fixes from the operator.
+    Reporting them all as "is ANTHROPIC_API_KEY configured?" sends them to
+    check an environment variable that is usually already fine."""
     user, org = _seed(db_session)
     client._holder["user"] = user  # type: ignore[attr-defined]
+    url = f"/campaigns/plan?organization_id={org.id}"
+
     monkeypatch.setattr(campaigns_router.planner, "client", None)
-    resp = client.post(f"/campaigns/plan?organization_id={org.id}", json={"goal": "leads"})
+    detail = client.post(url, json={"goal": "leads"}).json()["detail"]
+    assert "ANTHROPIC_API_KEY" in detail
+
+    # A provider error, raised where the real one is - inside the model call -
+    # so what the operator reads is what the provider actually said.
+    class _Exploding:
+        def __init__(self):
+            self.messages = self
+
+        def create(self, **_kwargs):
+            raise RuntimeError("credit balance is too low")
+
+    monkeypatch.setattr(campaigns_router.planner, "client", _Exploding())
+    resp = client.post(url, json={"goal": "leads"})
     assert resp.status_code == 503
+    # The provider's own words, not ours - that is the whole point.
+    assert "credit balance is too low" in resp.json()["detail"]
+    assert "ANTHROPIC_API_KEY" not in resp.json()["detail"]
+
+    campaigns_router.planner.client = object()
+    monkeypatch.setattr(campaigns_router.planner, "_json_call",
+                        lambda *a, **kw: {"name": "Fine", "pieces": []})
+    detail = client.post(url, json={"goal": "leads"}).json()["detail"]
+    assert "no usable pieces" in detail
+
+
+def test_an_unreadable_or_truncated_reply_is_named_as_such(monkeypatch):
+    """The two parse failures the operator can act on: a reply that isn't JSON,
+    and one that ran out of tokens mid-plan."""
+    from app.services.campaign import PlanFailed
+
+    planner = CampaignPlanner()
+
+    class _Block:
+        type = "text"
+
+        def __init__(self, text):
+            self.text = text
+
+    class _Response:
+        def __init__(self, text, stop_reason="end_turn"):
+            self.content = [_Block(text)]
+            self.stop_reason = stop_reason
+
+    class _Client:
+        def __init__(self, response):
+            self.messages = self
+            self._response = response
+
+        def create(self, **_kwargs):
+            return self._response
+
+    planner.client = _Client(_Response("I'd be happy to help you plan that!"))
+    with pytest.raises(PlanFailed, match="couldn't be read as a plan"):
+        planner._json_call("sys", {}, 100)
+
+    planner.client = _Client(_Response('{"name": "Half a pl', stop_reason="max_tokens"))
+    with pytest.raises(PlanFailed, match="cut off"):
+        planner._json_call("sys", {}, 100)
+
+    planner.client = _Client(_Response(""))
+    with pytest.raises(PlanFailed, match="returned nothing"):
+        planner._json_call("sys", {}, 100)
 
 
 def test_an_invented_surface_degrades_instead_of_failing_the_plan():

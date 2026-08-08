@@ -39,6 +39,7 @@ from app.services.campaign import (
     MAX_PIECES,
     MIN_PIECES,
     ROLES,
+    PlanFailed,
     as_date,
     role_brief,
     role_expects_cta,
@@ -233,16 +234,16 @@ def plan_campaign(
     piece carrying its surface, its role in the arc and its date. Cheap enough
     to run again with a different theme until the shape is right."""
     org = get_owned_org(organization_id, db, user)
-    plan = planner.plan(
-        _org_context(org), payload.goal, payload.theme, payload.channels,
-        payload.pieces, payload.starts_on, payload.ends_on, _site_type(org),
-    )
-    if not plan:
-        raise HTTPException(
-            status_code=503,
-            detail="The campaign couldn't be planned (is ANTHROPIC_API_KEY configured?). Try again.",
+    try:
+        return planner.plan(
+            _org_context(org), payload.goal, payload.theme, payload.channels,
+            payload.pieces, payload.starts_on, payload.ends_on, _site_type(org),
         )
-    return plan
+    except PlanFailed as exc:
+        # Reported verbatim: the operator sees this string in the plugin, and a
+        # missing key, an exhausted account and an unreadable reply need three
+        # different actions from them.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("")
@@ -486,13 +487,17 @@ def _build_one(db: Session, campaign: Campaign, org, item: dict) -> dict:
     if surface is None:
         return {**item, "status": "failed", "error": f"Unknown surface '{item.get('surface')}'."}
 
+    if studio.client is None:
+        return {**item, "status": "failed",
+                "error": "No ANTHROPIC_API_KEY is set on the API, so nothing can be written."}
+
     idea = {"headline": item.get("headline", ""), "angle": item.get("angle", ""),
             "why": item.get("why", "")}
     draft = studio.draft_surface(_org_context(org), idea, surface, campaign.goal,
                                  _site_type(org), _brief(campaign, item))
     if not draft or not draft.get("body"):
         return {**item, "status": "failed",
-                "error": "The copy couldn't be written (is ANTHROPIC_API_KEY configured?). Try again."}
+                "error": "The copy came back empty. Try writing this piece again."}
     # Held to its role, not to the campaign's goal: a hook is briefed not to
     # ask, so the goal-derived call-to-action rule would flag it for obeying.
     expects_cta = role_expects_cta(item.get("role", ""))
