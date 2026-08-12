@@ -75,6 +75,15 @@ class Settings(BaseSettings):
     linkedin_client_secret: str | None = None
     twitter_client_id: str | None = None
     twitter_client_secret: str | None = None
+    # --- Postiz relay (services/channels/postiz.py) ---
+    # The public-API root offered as the default when an admin connects a
+    # Postiz workspace. Point it at a self-hosted instance's backend URL (e.g.
+    # https://postiz.example.org/api) to make that the house default; each
+    # organization can still override it when connecting. API keys are never
+    # set here - they belong to one workspace and are stored per organization,
+    # encrypted, on PostizWorkspace.
+    postiz_base_url: str = "https://api.postiz.com"
+
     # Signs the short-lived public media URLs Instagram's publishing API
     # requires (it fetches the image itself, so it can't send a bearer token).
     # Unset falls back to jwt_secret.

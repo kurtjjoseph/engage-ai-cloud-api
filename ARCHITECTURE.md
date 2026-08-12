@@ -182,6 +182,55 @@ The Content Studio (§3.9) answers "what should this post say?". It never answer
 
 **Nothing publishes.** A finished campaign is a set of drafts, each of which goes out through the same explicit, per-piece publish the studio already requires.
 
+### 3.12 Postiz as a second delivery transport (added 2026-08-10)
+
+Full design note: `docs/postiz-integration.md`.
+
+§3.10 gave every channel a direct, credential-holding adapter. What it could not
+give is *access*: Meta App Review, LinkedIn's Community Management API, TikTok's
+2-4 week audit and Google's API request all stand between a real church and a
+real post, and no amount of code shortens them. Postiz (AGPL, self-hostable) has
+already passed those reviews, so an organization that connects its accounts
+inside Postiz can post today, through one API key, to nine channels this
+codebase has no provider for at all (TikTok, Threads, Bluesky, Mastodon,
+Pinterest, Telegram, Discord, Reddit, Slack).
+
+**It is a transport, not a channel.** A post relayed to a Facebook Page is still
+a `facebook` Publication - analytics, the content library and the cycle learn
+nothing new. `registry.get_adapter()` gained one step: override -> direct
+connection -> **Postiz workspace** -> simulated. Direct deliberately outranks
+relayed, so connecting Postiz can never silently re-route a channel the org
+already authorized itself; it fills gaps rather than taking over.
+
+**The honesty problem this created, and how it's handled.** A direct adapter
+posts synchronously and only records on success, so a Publication row means "it
+is live". Postiz accepts a post into its own queue and releases it afterwards,
+returning an id rather than a permalink - so "we sent it" and "it is live"
+became two different facts. Collapsing them would repeat exactly the mistake
+`Publication.simulated` exists to prevent. `Publication` therefore gained
+`delivery` / `external_id` / `status`: a relayed post is real (`simulated=False`)
+but `queued`, its `url` points at the *account* rather than an invented post URL,
+and `POST .../postiz/reconcile` promotes it to the real permalink once Postiz
+reports one. A post Postiz hasn't released is left exactly as it was.
+
+**Consent is unchanged, not re-litigated.** `PostizChannel.auto_post` is off per
+account and gates the unattended path the same way `ChannelConnection.auto_post`
+does; the fan-out publish endpoint additionally refuses without `confirm=true`,
+because it is the one call that can put a piece on every channel an organization
+owns. Postiz owns the account list (`GET /integrations` on every sync); Engage AI
+owns only the two things a person chose - `auto_post` and per-provider
+`settings` - and those survive a re-sync.
+
+**Status:** 27 offline tests (`tests/test_postiz.py`) pin the request shapes,
+the encryption-at-rest, the direct-beats-relayed ordering, partial-failure
+reporting and the queued->published transition. **Not yet run against a live
+Postiz instance** - `scripts/postiz_smoke.py` exists for exactly that and is the
+remaining verification step. Fixing this also uncovered a real latent bug in
+`tests/test_channels.py`: its "cleanup" re-registered a simulated adapter for
+`facebook` instead of unregistering the override, which pinned that channel to
+simulated for every test that ran afterwards. Harmless while nothing resolved
+per-org adapters; wrong the moment something did.
+
 ## 4. Deployment scaffolding
 
 `render.yaml` is the active deploy path (see §3.3). The `Dockerfile` and `docker-compose.yml` remain useful for local development (`docker compose up`).

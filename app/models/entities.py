@@ -324,6 +324,18 @@ class Publication(Base):
     # post actually went out - see services/channels). The API surfaces this so
     # a simulated/draft publication is never mistaken for a real live post.
     simulated: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # How this went out: "direct" (the org's own OAuth/token connection),
+    # "postiz" (relayed through the org's Postiz workspace), or NULL for
+    # everything recorded before this distinction existed.
+    delivery: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # The relay's own id for this post, when it has one (a Postiz post id).
+    # Keeps a queued post identifiable for reconciliation and cancellation.
+    external_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    # "published" | "queued" | "scheduled". A relayed post is accepted into a
+    # queue and released afterwards, so "we sent it" and "it is live" are two
+    # different facts and are not collapsed into one. NULL means published -
+    # every direct adapter posts synchronously and only records on success.
+    status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -435,6 +447,91 @@ class ChannelAuthRequest(Base):
     used: Mapped[bool] = mapped_column(Boolean, default=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PostizWorkspace(Base):
+    """One organization's link to a Postiz workspace.
+
+    The alternative to authorizing every platform directly (ChannelConnection):
+    the org's accounts are connected inside Postiz, and Engage AI holds a single
+    API key that can post to all of them. One workspace per organization - a key
+    already scopes to exactly one Postiz workspace, so a second row would only
+    ever be ambiguity about which one is meant.
+
+    The key is ENCRYPTED at rest (services/crypto.py) and is never returned by
+    any endpoint, exactly like a ChannelConnection token.
+    """
+
+    __tablename__ = "postiz_workspaces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id"), index=True, unique=True
+    )
+    # Public-API root, normalized by services/channels/postiz.normalize_base_url.
+    # Hosted Postiz is https://api.postiz.com/public/v1.
+    base_url: Mapped[str] = mapped_column(String(500))
+    # Where the workspace's own UI lives, when the operator supplied it - used
+    # only to link an admin to a queued post. Optional: a missing app URL costs
+    # a convenience link, never a publish.
+    app_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    api_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # "connected" | "error" | "revoked". Only "connected" posts.
+    status: Mapped[str] = mapped_column(String(20), default="connected", index=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connected_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    connected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    channels = relationship(
+        "PostizChannel", back_populates="workspace", cascade="all, delete-orphan"
+    )
+
+
+class PostizChannel(Base):
+    """One account inside a Postiz workspace, mapped to an Engage AI channel.
+
+    Rows are created by syncing the workspace (`GET /integrations`), not by
+    hand: what Postiz has connected is the source of truth for what can be
+    posted to. Two fields are Engage AI's own and survive a re-sync, because
+    they are decisions a person made rather than facts Postiz reports:
+
+    * `auto_post` - the same explicit opt-in ChannelConnection carries. Off by
+      default; the engagement cycle will not touch a channel without it.
+    * `settings` - provider settings the operator had to choose (a subreddit,
+      a non-default YouTube visibility). Merged over the defaults in
+      services/channels/postiz.default_settings.
+    """
+
+    __tablename__ = "postiz_channels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("postiz_workspaces.id"), index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    # The Engage AI channel this account posts to ("facebook", "tiktok", ...).
+    # Not unique: an org can have two Instagram accounts in one workspace.
+    channel: Mapped[str] = mapped_column(String(50), index=True)
+    # Postiz's own ids: the integration id posts are addressed to, and the
+    # platform identifier that becomes settings.__type on every post.
+    integration_id: Mapped[str] = mapped_column(String(120), index=True)
+    identifier: Mapped[str] = mapped_column(String(50))
+    account_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    account_picture: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Disabled inside Postiz (expired token, over plan limit). Refreshed on
+    # every sync; a disabled channel is never posted to.
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Whether this is the account used when a post names only the channel.
+    # Exactly one per channel per workspace; the first synced account wins
+    # until an admin picks another.
+    is_default: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_post: Mapped[bool] = mapped_column(Boolean, default=False)
+    settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    workspace = relationship("PostizWorkspace", back_populates="channels")
 
 
 class EngagementCycleRun(Base):

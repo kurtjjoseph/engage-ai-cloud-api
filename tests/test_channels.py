@@ -16,6 +16,7 @@ from app.services.channels import (
     distribute_engagement,
     get_adapter,
     register_adapter,
+    unregister_adapter,
 )
 from app.services.channels.base import slugify
 
@@ -108,11 +109,12 @@ def test_register_adapter_overrides_channel(db_session, org):
         assert publication.url == sentinel_url
         assert publication.label == "dummy override"
     finally:
-        # Restore the default so this test doesn't leak state into others -
-        # the registry is a module-level singleton shared across the process.
-        from app.services.channels.social import SimulatedSocialAdapter
-
-        register_adapter("facebook", SimulatedSocialAdapter(channel="facebook"))
+        # Drop the override so this test doesn't leak state into others - the
+        # registry is a module-level singleton shared across the process.
+        # Re-registering a simulated adapter would NOT do: an override outranks
+        # the per-org live/relayed resolution, so it would pin facebook to
+        # simulated for every later test instead of restoring the default.
+        unregister_adapter("facebook")
 
 
 def test_website_url_reflects_draft_marker(db_session, org):

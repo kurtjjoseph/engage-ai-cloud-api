@@ -74,8 +74,16 @@ class ChannelAdapter(ABC):
         url: str,
         label: str | None,
         content_item_id: int | None = None,
+        delivery: str | None = None,
+        external_id: str | None = None,
+        status: str | None = None,
     ) -> Publication:
-        """Create, commit, and refresh a Publication row for this distribution."""
+        """Create, commit, and refresh a Publication row for this distribution.
+
+        `delivery`/`external_id`/`status` are for adapters that hand the post to
+        something else to release (see channels/postiz.py). A direct adapter
+        posts synchronously and only records on success, so it leaves them unset
+        and the row reads as an unqualified, published post - which it is."""
         publication = Publication(
             organization_id=org.id,
             content_item_id=content_item_id,
@@ -83,6 +91,9 @@ class ChannelAdapter(ABC):
             url=url,
             label=label,
             simulated=self.simulated,
+            delivery=delivery,
+            external_id=external_id,
+            status=status,
             published_at=datetime.utcnow(),
         )
         db.add(publication)
