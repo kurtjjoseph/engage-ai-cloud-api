@@ -322,6 +322,22 @@ def test_a_text_only_surface_refuses_to_render(client, db_session):
     assert "no file to render" in render.json()["detail"]
 
 
+def test_a_piece_says_up_front_that_it_has_no_media_pass(client, db_session):
+    """The refusal above is correct but late: a caller that only learns from a
+    400 has already offered the operator a button that cannot work. The piece
+    carries the surface's render mode, so the media pass can be skipped."""
+    text_only, _ = _api(client, db_session, "twitter_x.tweet", {
+        "title": "Take", "body": "Book the call before you build the site.", "hashtags": [],
+    })
+    assert text_only.json()["output_payload"]["render"] == "none"
+
+    with_media, _ = _api(client, db_session, "instagram.feed_image", {
+        "title": "Look", "body": "One frame, one idea.", "hashtags": [],
+        "image_prompt": "a clean workshop bench", "image_alt": "a workbench",
+    })
+    assert with_media.json()["output_payload"]["render"] != "none"
+
+
 def test_editing_a_surface_piece_rechecks_its_declared_fields(client, db_session):
     response, org = _api(client, db_session, "twitter_x.poll", {
         "title": "Poll", "body": "Pick one.", "hashtags": [],

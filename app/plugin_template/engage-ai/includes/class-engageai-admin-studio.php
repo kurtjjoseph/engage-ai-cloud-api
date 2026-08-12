@@ -132,7 +132,9 @@ class EngageAI_Admin_Studio
         if (is_wp_error($result)) {
             $this->redirect(['step' => 'draft', 'content_id' => $content_id, 'error' => rawurlencode($result->get_error_message())]);
         }
-        $next = ($_POST['then'] ?? '') === 'media' ? 'media' : 'draft';
+        $then = (string) ($_POST['then'] ?? '');
+        // "publish" is where a text-only piece goes: it has no media pass.
+        $next = in_array($then, ['media', 'publish'], true) ? $then : 'draft';
         $this->redirect(['step' => $next, 'content_id' => $content_id, 'saved' => 1]);
     }
 
@@ -584,7 +586,11 @@ class EngageAI_Admin_Studio
                 <?php endif; ?>
 
                 <div class="eas-actions">
-                    <button type="submit" name="then" value="media" class="eas-btn"><?php esc_html_e('Save and make the media', 'engage-ai'); ?></button>
+                    <?php if ($this->piece_renders_media($out)): ?>
+                        <button type="submit" name="then" value="media" class="eas-btn"><?php esc_html_e('Save and make the media', 'engage-ai'); ?></button>
+                    <?php else: ?>
+                        <button type="submit" name="then" value="publish" class="eas-btn"><?php esc_html_e('Save and continue to publish', 'engage-ai'); ?></button>
+                    <?php endif; ?>
                     <button type="submit" name="then" value="draft" class="eas-btn eas-btn--ghost"><?php esc_html_e('Save and re-check', 'engage-ai'); ?></button>
                 </div>
             </form>
@@ -658,6 +664,27 @@ class EngageAI_Admin_Studio
 
     /* ----------------------------------------------------------- 4. media */
 
+    /**
+     * Whether this piece has a media pass at all.
+     *
+     * Some surfaces are pure copy - a text post, a reply, a short update - and
+     * the API refuses to render them ("the copy is the whole post"). The surface
+     * says so in output_payload["render"]; pieces drafted before that field
+     * existed are read the same way from what they carry, since a piece with
+     * neither an image prompt nor slides has nothing to render either.
+     */
+    private function piece_renders_media(array $out): bool
+    {
+        $mode = (string) ($out['render'] ?? '');
+        if ($mode !== '') {
+            return $mode !== 'none';
+        }
+        if (($out['surface'] ?? '') === '') {
+            return true; // format-first piece from the original workflow: always media.
+        }
+        return trim((string) ($out['image_prompt'] ?? '')) !== '' || !empty($out['slides']);
+    }
+
     private function step_media(int $content_id): void
     {
         $org_id = (int) $this->client->get_organization_id();
@@ -667,6 +694,30 @@ class EngageAI_Admin_Studio
             return;
         }
         $out = $item['output_payload'] ?? [];
+
+        if (!$this->piece_renders_media($out)) {
+            $label = trim((string) ($out['content_type_label'] ?? ''));
+            if ($label === '') {
+                $label = __('text post', 'engage-ai');
+            }
+            $label = function_exists('mb_strtolower') ? mb_strtolower($label, 'UTF-8') : strtolower($label);
+            ?>
+            <div class="eas-panel">
+                <h2><?php esc_html_e('No media for this one', 'engage-ai'); ?></h2>
+                <p><?php echo esc_html(sprintf(
+                    /* translators: %s: the content type, e.g. "text post" */
+                    __('A %s carries no file - the copy is the whole post. There is nothing to render here.', 'engage-ai'),
+                    $label
+                )); ?></p>
+                <div class="eas-actions">
+                    <a class="eas-btn" href="<?php echo esc_url($this->url(['step' => 'publish', 'content_id' => $content_id])); ?>"><?php esc_html_e('Continue to publish', 'engage-ai'); ?></a>
+                    <a class="eas-btn eas-btn--ghost" href="<?php echo esc_url($this->url(['step' => 'draft', 'content_id' => $content_id])); ?>"><?php esc_html_e('Back to the copy', 'engage-ai'); ?></a>
+                </div>
+            </div>
+            <?php
+            return;
+        }
+
         $state = $out['studio'] ?? [];
         $render = $state['render'] ?? [];
         $status = (string) ($render['status'] ?? 'none');

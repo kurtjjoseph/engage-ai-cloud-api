@@ -210,11 +210,18 @@ def test_blocked_without_baseline(db_session):
 
 
 def test_offline_no_network_dependency(db_session, monkeypatch):
-    """Belt-and-suspenders: assert no Anthropic/OpenAI key is configured and
-    the simulate-mode cycle still completes and raises the score - proving
-    this path never depends on network access."""
+    """Belt-and-suspenders: with no Anthropic/OpenAI key available at all, the
+    simulate-mode cycle still completes and raises the score - proving this path
+    never depends on network access.
+
+    The keys are taken away here rather than asserted absent. Asserting on the
+    ambient settings tested whoever's .env happened to be on the machine: it
+    failed for any developer with a real key configured, and passed vacuously
+    where there was none, without ever proving the cycle avoids the network."""
     from app.config import settings
 
+    monkeypatch.setattr(settings, "anthropic_api_key", "", raising=False)
+    monkeypatch.setattr(settings, "openai_api_key", "", raising=False)
     assert not settings.anthropic_api_key
     assert not settings.openai_api_key
 

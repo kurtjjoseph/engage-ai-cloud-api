@@ -199,6 +199,11 @@ def _write_surface(item: ContentItem, draft: dict, state: dict) -> dict:
         "content_type_key": surface.key,
         "content_type_label": surface.label,
         "media": surface.media,
+        # The surface's render MODE ("none" for a text post), not the render
+        # STATUS - that lives at output["studio"]["render"]. A caller needs this
+        # to know a piece has no media pass at all, instead of offering a render
+        # button and learning from a 400 that the copy is the whole post.
+        "render": surface.render,
         "publish": surface.publish,
         "title": draft.get("title", ""),
         "body": draft.get("body", ""),
