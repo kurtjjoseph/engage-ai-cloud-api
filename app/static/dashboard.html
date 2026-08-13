@@ -140,6 +140,16 @@
   .bd td.p{text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600}
   .srcs{font-size:11.5px;margin-top:9px;word-break:break-all;color:var(--ink-soft)}
   .srcs a{margin-right:9px}
+
+  /* settings */
+  .acct{display:flex;gap:14px;align-items:flex-start;justify-content:space-between}
+  .acct-main{min-width:0;flex:1}
+  .acct-toggle{flex:none;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);white-space:nowrap;cursor:pointer}
+  .acct-toggle input{width:auto;margin:0;cursor:pointer}
+  .acct-toggle input:disabled{cursor:default}
+  .acct-fix{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .acct-fix input{width:auto;flex:1;min-width:150px;padding:7px 10px;font-size:12.5px}
+  .acct-fix .btn{flex:none}
 </style>
 </head>
 <body>
@@ -275,8 +285,10 @@
   function route(force){
     if(!token) return;
     var sm=(location.hash||"").match(/^#\/site\/(\d+)\/scan\/(\d+)/);
+    var st=(location.hash||"").match(/^#\/site\/(\d+)\/settings/);
     var m=(location.hash||"").match(/^#\/site\/(\d+)/);
     if(sm){ currentView={name:"scan",id:+sm[1],sid:+sm[2]}; loadScan(+sm[1],+sm[2]); }
+    else if(st){ currentView={name:"settings",id:+st[1]}; loadSettings(+st[1]); }
     else if(m){ currentView={name:"site",id:+m[1]}; loadDetail(+m[1]); }
     else { currentView={name:"main"}; loadMain(); }
   }
@@ -452,6 +464,7 @@
         +(d.front_url?'<a class="btn ghost" href="'+esc(d.front_url)+'" target="_blank" rel="noopener">Open site ↗</a>':'')
         +(d.wp_admin_url?'<a class="btn ghost" href="'+esc(d.wp_admin_url)+'" target="_blank" rel="noopener">wp-admin ↗</a>':'')
         +(d.analytics_enabled?'<button class="btn ghost primary" id="scanBtn" type="button">↻ Run scan</button>':'')
+        +'<button class="btn ghost" id="settingsBtn" type="button">⚙ Settings</button>'
         +'<span class="spacer"></span>'
         +'<button class="btn ghost danger" id="deleteBtn" type="button">Delete site</button>'
       +'</div>'
@@ -520,6 +533,7 @@
 
     el("detail").innerHTML=head+body;
     el("backBtn").addEventListener("click",function(){ location.hash="#/"; });
+    el("settingsBtn").addEventListener("click",function(){ location.hash="#/site/"+d.id+"/settings"; });
     var scanBtn=el("scanBtn");
     if(scanBtn) scanBtn.addEventListener("click",function(){
       scanBtn.disabled=true; var prev=scanBtn.textContent; scanBtn.textContent="Starting…";
@@ -543,6 +557,185 @@
     });
     Array.prototype.forEach.call(el("detail").querySelectorAll(".scan-row"),function(r){
       r.addEventListener("click",function(){ location.hash="#/site/"+d.id+"/scan/"+r.getAttribute("data-sid"); });
+    });
+  }
+
+  /* ================= SETTINGS ================= */
+  /* Per-organization configuration. Postiz is the first thing that lives here:
+     the relay's six endpoints shipped without any surface, so connecting a
+     workspace was a curl call until this view existed. The API key is typed
+     here, posted once, and never read back - the API stores it encrypted and
+     returns it to nobody. */
+
+  var POSTIZ_HOSTED="https://api.postiz.com";
+
+  function loadSettings(id){
+    el("main").classList.add("hide"); el("detail").classList.remove("hide");
+    stopPolling();
+    Promise.all([api("/admin/site/"+id),api("/organizations/"+id+"/postiz")])
+      .then(function(r){ lastFetch=new Date().toISOString(); renderSettings(r[0],r[1]); })
+      .catch(function(e){ toast(e.message); });
+  }
+
+  function postizStatusChip(p){
+    if(p.connected) return '<span class="chip ok">connected</span>';
+    if(p.status==="error") return '<span class="chip bad">needs attention</span>';
+    return '<span class="chip dim">not connected</span>';
+  }
+
+  function postizConnectForm(p){
+    // Shown when there is no usable workspace, and again after an error so a
+    // rotated key can be pasted over the dead one.
+    var known=p.base_url||"";
+    return '<div class="two" style="margin-top:4px">'
+      +'<div>'
+        +'<div class="field"><label for="pzKey">Postiz API key</label>'
+          +'<input id="pzKey" type="password" autocomplete="off" spellcheck="false" placeholder="paste the key from Postiz → Settings → Public API"></div>'
+        +'<div class="field"><label for="pzBase">Instance URL <span class="sub">— only for self-hosted</span></label>'
+          +'<input id="pzBase" type="url" autocomplete="off" spellcheck="false" placeholder="'+esc(known||POSTIZ_HOSTED)+'" value="'+esc(known)+'"></div>'
+        +'<div class="field"><label for="pzApp">Workspace UI URL <span class="sub">— optional, for links to queued posts</span></label>'
+          +'<input id="pzApp" type="url" autocomplete="off" spellcheck="false" placeholder="https://postiz.example.org" value="'+esc(p.app_url||"")+'"></div>'
+        +'<button class="btn ghost primary" id="pzConnect" type="button">Connect workspace</button>'
+        +'<div class="err" id="pzErr"></div>'
+      +'</div>'
+      +'<div><div class="sub" style="line-height:1.6">'
+        +'<strong>What this is.</strong> Every platform gates posting for someone else\'s account behind an app review. '
+        +'Postiz has already passed them, so accounts connected inside Postiz can be posted to through one key.<br><br>'
+        +'<strong>The key is verified before it is stored</strong> — a typo fails here, not at the first post. '
+        +'It is encrypted at rest and is never shown again, here or anywhere else.<br><br>'
+        +'<strong>Connecting starts nothing.</strong> Every account arrives switched off; you turn on auto-posting per account below.<br><br>'
+        +'<strong>A channel this site connected directly keeps using its own credentials.</strong> Postiz only fills the gaps.'
+      +'</div></div>'
+    +'</div>';
+  }
+
+  function postizAccountRow(c){
+    var name=c.account_name||c.identifier||c.channel;
+    var chips=(c.disabled?'<span class="chip bad">disabled in Postiz</span> ':"")
+      +(c.auto_post?'<span class="chip ok">auto-posting</span> ':'<span class="chip dim">manual only</span> ')
+      +(c.missing_settings&&c.missing_settings.length?'<span class="chip warn">needs '+c.missing_settings.map(esc).join(", ")+'</span> ':"");
+    var meta=esc(c.channel)+(c.last_used_at?' · last post '+ago(c.last_used_at):' · never posted');
+    var err=c.last_error?'<div class="sub" style="color:var(--bad)">'+esc(c.last_error)+'</div>':"";
+
+    // One input per setting the platform demands and nobody can guess — a
+    // subreddit is the only one today, but the list comes from the API.
+    var fix="";
+    if(c.missing_settings&&c.missing_settings.length){
+      fix='<div class="acct-fix">'+c.missing_settings.map(function(k){
+        return '<input class="pz-set" data-int="'+esc(c.integration_id)+'" data-key="'+esc(k)+'" '
+          +'placeholder="'+esc(k)+'" autocomplete="off" spellcheck="false">';
+      }).join("")
+      +'<button class="btn ghost pz-save" data-int="'+esc(c.integration_id)+'" type="button">Save</button></div>';
+    }
+
+    return '<li class="acct"><div class="acct-main"><strong>'+esc(name)+'</strong> '+chips
+      +'<div class="sub">'+meta+'</div>'+err+fix+'</div>'
+      +'<label class="acct-toggle"><input type="checkbox" class="pz-auto" data-int="'+esc(c.integration_id)+'"'
+        +(c.auto_post?" checked":"")+(c.disabled?" disabled":"")+'> auto-post</label></li>';
+  }
+
+  function renderSettings(d,p){
+    var head='<div class="backrow">'
+      +'<button class="btn ghost" id="backBtn" type="button">← '+esc(d.name)+'</button>'
+      +'<span class="spacer"></span></div>'
+      +'<div class="detail-head"><div><h1>Settings</h1>'
+      +'<div class="meta">'+esc(d.name)+' · per-organization configuration</div></div></div>';
+
+    var pz='<div class="panel"><h3>Postiz workspace '+postizStatusChip(p)+'</h3>';
+    if(p.last_error) pz+='<div class="sub" style="color:var(--bad);margin-bottom:10px">'+esc(p.last_error)+'</div>';
+
+    if(!p.connected){
+      pz+=postizConnectForm(p);
+    } else {
+      pz+='<table class="kv" style="margin-bottom:12px">'
+        +'<tr><td class="k">Instance</td><td class="v">'+esc(p.base_url||POSTIZ_HOSTED)+'</td></tr>'
+        +(p.app_url?'<tr><td class="k">Workspace</td><td class="v"><a href="'+esc(p.app_url)+'" target="_blank" rel="noopener">'+esc(p.app_url)+' ↗</a></td></tr>':"")
+        +'<tr><td class="k">Connected</td><td class="v">'+ago(p.connected_at)+'</td></tr>'
+        +'<tr><td class="k">Accounts synced</td><td class="v">'+ago(p.last_synced_at)+'</td></tr>'
+        +'</table>'
+        +'<div class="backrow"><button class="btn ghost primary" id="pzSync" type="button">↻ Re-read accounts</button>'
+        +'<span class="spacer"></span><button class="btn ghost danger" id="pzDisconnect" type="button">Disconnect</button></div>';
+
+      var rows=(p.channels||[]).map(postizAccountRow).join("");
+      pz+= rows
+        ? '<h4 style="margin:14px 0 8px;font-size:10.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em">'
+            +'Accounts Postiz can reach ('+(p.channels||[]).length+')</h4><ul class="runlist">'+rows+'</ul>'
+            +'<div class="sub" style="margin-top:10px">Auto-post lets the engagement cycle publish to an account unattended. '
+            +'Off means the account is reachable, but every post stays an explicit action.</div>'
+        : '<div class="empty">This workspace has no accounts Engage AI can route to yet. Connect them inside Postiz, then re-read.</div>';
+    }
+    pz+='</div>';
+
+    el("detail").innerHTML=head+pz;
+    el("backBtn").addEventListener("click",function(){ location.hash="#/site/"+d.id; });
+    wireSettings(d.id);
+  }
+
+  function wireSettings(id){
+    var connectBtn=el("pzConnect");
+    if(connectBtn) connectBtn.addEventListener("click",function(){
+      var key=(el("pzKey").value||"").trim();
+      var errBox=el("pzErr");
+      if(!key){ errBox.textContent="Paste the API key first."; return; }
+      errBox.textContent=""; connectBtn.disabled=true; connectBtn.textContent="Verifying…";
+      var body={api_key:key};
+      var base=(el("pzBase").value||"").trim(); if(base) body.base_url=base;
+      var app=(el("pzApp").value||"").trim(); if(app) body.app_url=app;
+      api("/organizations/"+id+"/postiz/connect",{method:"POST",
+          headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+        .then(function(){
+          el("pzKey").value="";           // the key leaves the page with the request
+          toast("Postiz connected"); loadSettings(id);
+        })
+        .catch(function(e){
+          errBox.textContent=e.message; connectBtn.disabled=false; connectBtn.textContent="Connect workspace";
+        });
+    });
+
+    var syncBtn=el("pzSync");
+    if(syncBtn) syncBtn.addEventListener("click",function(){
+      syncBtn.disabled=true; syncBtn.textContent="Reading…";
+      api("/organizations/"+id+"/postiz/sync",{method:"POST"})
+        .then(function(){ toast("Accounts re-read from Postiz"); loadSettings(id); })
+        .catch(function(e){ toast(e.message); syncBtn.disabled=false; syncBtn.textContent="↻ Re-read accounts"; });
+    });
+
+    var offBtn=el("pzDisconnect");
+    if(offBtn) offBtn.addEventListener("click",function(){
+      if(!confirm("Disconnect this Postiz workspace?\n\nThe key is forgotten and auto-posting is switched off for every account it reached. Channels connected directly are unaffected.")) return;
+      api("/organizations/"+id+"/postiz",{method:"DELETE"})
+        .then(function(){ toast("Postiz disconnected"); loadSettings(id); })
+        .catch(function(e){ toast(e.message); });
+    });
+
+    function patchChannel(integration,body,okMsg){
+      return api("/organizations/"+id+"/postiz/channels/"+encodeURIComponent(integration),
+        {method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+        .then(function(){ toast(okMsg); loadSettings(id); })
+        .catch(function(e){ toast(e.message); loadSettings(id); });
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll(".pz-auto"),function(box){
+      box.addEventListener("change",function(){
+        box.disabled=true;
+        patchChannel(box.getAttribute("data-int"),{auto_post:box.checked},
+          box.checked?"Auto-posting on":"Auto-posting off");
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll(".pz-save"),function(btn){
+      btn.addEventListener("click",function(){
+        var integration=btn.getAttribute("data-int"), settings={}, missing=false;
+        Array.prototype.forEach.call(
+          document.querySelectorAll('.pz-set[data-int="'+integration+'"]'),function(inp){
+            var v=(inp.value||"").trim();
+            if(!v){ missing=true; return; }
+            settings[inp.getAttribute("data-key")]=v;
+          });
+        if(missing){ toast("Fill every field before saving."); return; }
+        btn.disabled=true;
+        patchChannel(integration,{settings:settings},"Saved");
+      });
     });
   }
 
