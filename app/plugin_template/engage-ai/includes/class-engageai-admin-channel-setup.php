@@ -107,7 +107,12 @@ class EngageAI_Admin_Channel_Setup
     {
         ?>
         <div class="wrap engageai-wrap">
-            <h1><?php esc_html_e('Set up a channel', 'engage-ai'); ?></h1>
+            <h1><?php esc_html_e('Channels', 'engage-ai'); ?></h1>
+            <?php
+            if (class_exists('EngageAI_Admin_Channels')) {
+                EngageAI_Admin_Channels::render_tabs('setup');
+            }
+            ?>
             <p class="description" style="max-width:46em;">
                 <?php esc_html_e('One channel at a time, from “we don’t have one yet” to “Engage AI can post on it”. Nothing here asks you for a password, and you can stop halfway and come back — this page remembers where you were.', 'engage-ai'); ?>
             </p>
@@ -159,12 +164,10 @@ class EngageAI_Admin_Channel_Setup
             <?php endforeach; ?>
         </div>
 
-        <p style="margin-top:1.5rem;">
-            <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=engageai-channels')); ?>"><?php esc_html_e('See what’s connected', 'engage-ai'); ?></a>
-            <?php if (!empty($this->progress())): ?>
-                <?php $this->reset_button(); ?>
-            <?php endif; ?>
-        </p>
+        <?php // "See what's connected" lived here; it is the Connected tab now. ?>
+        <?php if (!empty($this->progress())): ?>
+            <p style="margin-top:1.5rem;"><?php $this->reset_button(); ?></p>
+        <?php endif; ?>
         <?php
     }
 
@@ -363,7 +366,7 @@ class EngageAI_Admin_Channel_Setup
     {
         ?>
         <div class="wrap engageai-wrap">
-            <h1><?php esc_html_e('Set up a channel', 'engage-ai'); ?></h1>
+            <h1><?php esc_html_e('Channels', 'engage-ai'); ?></h1>
             <p><?php esc_html_e('Connect this site to Engage AI on the Settings page first — the wizard fills your organisation’s own name and website into the steps.', 'engage-ai'); ?></p>
             <p><a class="button button-primary" href="<?php echo esc_url(admin_url('admin.php?page=engageai-settings')); ?>"><?php esc_html_e('Go to Settings', 'engage-ai'); ?></a></p>
         </div>

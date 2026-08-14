@@ -46,6 +46,51 @@ class EngageAI_Admin_Settings
         ];
     }
 
+    /**
+     * Which modules are on, as last seen from the API. Kept in an option
+     * because the admin menu has to decide what to show on every single
+     * wp-admin page load, and an HTTP round-trip there would put the API on
+     * the critical path of the whole dashboard.
+     *
+     * Returns null when it has never been synced - callers must treat that as
+     * "show everything" rather than "nothing is enabled", so a fresh install
+     * or an API outage can never make the menu vanish.
+     *
+     * @return string[]|null
+     */
+    public static function cached_modules(): ?array
+    {
+        $cached = get_option(self::MODULES_OPTION, null);
+        return is_array($cached) ? $cached : null;
+    }
+
+    /** @param string[] $modules */
+    public static function cache_modules(array $modules): void
+    {
+        update_option(self::MODULES_OPTION, array_values($modules), false);
+    }
+
+    /** Refreshes the cache from the API's copy of the currently-selected org. */
+    public static function refresh_cached_modules(EngageAI_Api_Client $client): void
+    {
+        $org_id = (int) $client->get_organization_id();
+        if (!$org_id) {
+            return;
+        }
+        $orgs = $client->get_organizations();
+        if (is_wp_error($orgs)) {
+            return; // leave the last-known-good value in place
+        }
+        foreach ($orgs as $org) {
+            if ((int) ($org['id'] ?? 0) === $org_id) {
+                self::cache_modules((array) ($org['enabled_modules'] ?? []));
+                return;
+            }
+        }
+    }
+
+    private const MODULES_OPTION = 'engageai_enabled_modules';
+
     public function register_hooks(): void
     {
         add_action('admin_init', [$this, 'register_settings']);
@@ -142,6 +187,9 @@ class EngageAI_Admin_Settings
         }
 
         $this->client->set_organization_id($org_id);
+        // A different org can have a different set of modules on - resync now
+        // so the menu matches the org the operator just switched to.
+        self::refresh_cached_modules($this->client);
         $this->redirect_with_notice('success', __('Organization selected.', 'engage-ai'));
     }
 
@@ -256,6 +304,11 @@ class EngageAI_Admin_Settings
         if (is_wp_error($result)) {
             $this->redirect_with_notice('error', $result->get_error_message());
         }
+
+        // The menu is built from this cache, so it has to move in the same
+        // request the operator ticked the boxes in - otherwise a module they
+        // just switched on wouldn't appear until the next cron tick.
+        self::cache_modules($enabled);
 
         $this->redirect_with_notice('success', __('Modules updated.', 'engage-ai'));
     }
@@ -540,6 +593,13 @@ class EngageAI_Admin_Settings
                     </p>
                 <?php endif; ?>
             <?php endif; ?>
+
+            <?php
+            // Outside both connection branches on purpose: the Site Brain is
+            // served by this site itself and needs no API account or org, so it
+            // must be reachable before - or without - connecting one.
+            EngageAI_Site_Brain::render_settings_section();
+            ?>
         </div>
         <?php
     }

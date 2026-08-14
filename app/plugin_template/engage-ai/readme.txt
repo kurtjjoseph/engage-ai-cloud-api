@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.25.0
+Stable tag: 0.27.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -26,9 +26,23 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 3. Connect with the email/password you registered with on the API (your password is used once to connect and is not stored — only the resulting session token is kept).
 4. Select or create your organization. A website URL sharpens the Analytics module's search a lot for common organization names.
 5. Under Settings > Modules, turn on Engagement, Analytics, and/or whichever side-hustle agents this organization needs.
-6. Go to Engage AI > Campaigns to plan a whole run of content at once, Engage AI > Content Studio to create a single piece step by step, Engage AI > Agents for the ticket dashboard of any active side-hustle module, or Engage AI > Analytics to run a scan.
+6. Go to Engage AI > Campaigns to plan a whole run of content at once, or Engage AI > Content Studio to create a single piece step by step. Everything either one produces collects in Engage AI > Content Library, and each piece opens back in the Studio from there.
+7. Engage AI > Channels is where you connect the accounts it may post to — the "Set one up" tab walks you through a channel from scratch, including where to find its access token. Engage AI > Agents holds the ticket dashboard for any active side-hustle module, and Engage AI > Analytics runs a scan.
+
+Only the pages for your active modules appear in the menu, so this list is longer than what most organizations see.
 
 == Changelog ==
+
+= 0.27.0 =
+* New Site Brain module — your website, readable by AI. Everything the rest of the plugin does pushes content out to your channels. This does the opposite: it reads your own site, breaks every page into passages, and publishes the result as a live knowledge base an AI agent can search. Point a chatbot at it and it answers from your actual pages, with a link to the one it used, instead of making something up.
+* It knows the things it must not guess. Alongside the pages, you fill in your opening hours, phone number, address, booking link and the answers to the questions you get asked constantly. Those are handed over as verified facts, so an assistant quotes them rather than inferring them from a paragraph somewhere.
+* It keeps itself current. Publish or edit a page and it is re-read straight away; delete one and the brain says so. A full pass runs daily. Nothing to press.
+* Off until you turn it on, under Settings. Only published content in the post types you pick is ever served — never users, comments, orders or form submissions. You can require a token instead of allowing open access, and see every agent that called, what it asked and when.
+
+= 0.26.0 =
+* One place to make content, instead of three. The Content page used to have its own "Create a campaign" and "draft a single piece" forms, on an older pipeline than the rest of the plugin — what it produced could not be quality-checked, revised, given an image or published to a channel, because it could not get into the Content Studio. Those forms are gone. It is the Content Library now: everything ever written for your site, in one list, and every row opens in the Studio.
+* Setting up a channel is part of Channels, not a separate page. The wizard walked you to an access token and then sent you to a different menu item to hand it over. They are two tabs of one screen now — Connected, and Set one up.
+* The menu only shows what you actually have. Pages now appear based on the modules switched on for your organisation, so a site using Analytics alone is no longer given eight content pages it cannot use. If the module list can't be read for any reason, everything shows, exactly as before.
 
 = 0.25.0 =
 * New Campaigns page - plan a whole run of content instead of one post at a time. Say what you want it to achieve, what it's about and the dates it runs between, and Engage AI comes back with a named campaign: one idea, argued piece by piece, each piece already on the channel that suits it and the day it should go out.

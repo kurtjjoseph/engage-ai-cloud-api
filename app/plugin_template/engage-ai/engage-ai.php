@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.25.1
+ * Version: 0.27.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.25.1');
+define('ENGAGEAI_VERSION', '0.27.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -29,6 +29,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-campaigns.php'
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-channels.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-channel-setup.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-cron.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-site-brain.php';
 
 /**
  * Native WordPress "Update Now" support via Plugin Update Checker, pointed
@@ -96,10 +97,47 @@ final class EngageAI_Plugin
         EngageAI_Admin_Campaigns::instance()->register_hooks();
         EngageAI_Admin_Channels::instance()->register_hooks();
         EngageAI_Admin_Channel_Setup::instance()->register_hooks();
+
+        // Serves this site to AI agents. Registers its own Site Brain submenu
+        // when switched on in Settings; a no-op otherwise.
+        EngageAI_Site_Brain::boot();
+    }
+
+    /**
+     * True when a module is on for this org - or when we have never managed to
+     * read the org's module list, in which case everything shows. Failing open
+     * matters: a fresh install, a disconnected site or an API outage must not
+     * be able to make pages disappear out from under the operator.
+     */
+    private function module_active(string $module): bool
+    {
+        $modules = EngageAI_Admin_Settings::cached_modules();
+        return $modules === null || in_array($module, $modules, true);
+    }
+
+    /** True when any side-hustle agent niche is on (they share the one page). */
+    private function any_agent_active(): bool
+    {
+        $modules = EngageAI_Admin_Settings::cached_modules();
+        if ($modules === null) {
+            return true;
+        }
+        foreach ($modules as $module) {
+            if (strpos((string) $module, 'agent:') === 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function register_admin_menu(): void
     {
+        // Dashboard, Channels and Settings are always present - they are how you
+        // see what is happening, connect somewhere to post, and turn the rest on.
+        // Every other page is gated on the module that owns it, so an org that
+        // only bought Analytics doesn't wade through eight content pages.
+        $engagement = $this->module_active('engagement');
+
         add_menu_page(
             __('Engage AI', 'engage-ai'),
             __('Engage AI', 'engage-ai'),
@@ -119,32 +157,34 @@ final class EngageAI_Plugin
             [EngageAI_Admin_Dashboard::instance(), 'render_page']
         );
 
-        add_submenu_page(
-            'engageai-dashboard',
-            __('Content Studio', 'engage-ai'),
-            __('Content Studio', 'engage-ai'),
-            'manage_options',
-            'engageai-studio',
-            [EngageAI_Admin_Studio::instance(), 'render_page']
-        );
+        if ($engagement) {
+            add_submenu_page(
+                'engageai-dashboard',
+                __('Content Studio', 'engage-ai'),
+                __('Content Studio', 'engage-ai'),
+                'manage_options',
+                'engageai-studio',
+                [EngageAI_Admin_Studio::instance(), 'render_page']
+            );
 
-        add_submenu_page(
-            'engageai-dashboard',
-            __('Campaigns', 'engage-ai'),
-            __('Campaigns', 'engage-ai'),
-            'manage_options',
-            'engageai-campaigns',
-            [EngageAI_Admin_Campaigns::instance(), 'render_page']
-        );
+            add_submenu_page(
+                'engageai-dashboard',
+                __('Campaigns', 'engage-ai'),
+                __('Campaigns', 'engage-ai'),
+                'manage_options',
+                'engageai-campaigns',
+                [EngageAI_Admin_Campaigns::instance(), 'render_page']
+            );
 
-        add_submenu_page(
-            'engageai-dashboard',
-            __('Content Library', 'engage-ai'),
-            __('Content Library', 'engage-ai'),
-            'manage_options',
-            'engageai-content',
-            [EngageAI_Admin_Content::instance(), 'render_page']
-        );
+            add_submenu_page(
+                'engageai-dashboard',
+                __('Content Library', 'engage-ai'),
+                __('Content Library', 'engage-ai'),
+                'manage_options',
+                'engageai-content',
+                [EngageAI_Admin_Content::instance(), 'render_page']
+            );
+        }
 
         add_submenu_page(
             'engageai-dashboard',
@@ -155,6 +195,17 @@ final class EngageAI_Plugin
             [EngageAI_Admin_Channels::instance(), 'render_page']
         );
 
+        // The setup wizard is the same job as Channels - it walks you to a token,
+        // then hands you back to Channels to actually connect it. It is a tab on
+        // that page now rather than a second menu item.
+        //
+        // Registered against the real parent and then removed from the sidebar,
+        // rather than registered with a null parent: null is the old idiom for a
+        // hidden page, but passing null to add_submenu_page()'s string $parent_slug
+        // is deprecated as of PHP 8.1 and this plugin supports 8.0 upward. Removing
+        // it afterwards leaves the page fully registered - every existing link to
+        // ?page=engageai-channel-setup still resolves - and only takes it out of
+        // the menu.
         add_submenu_page(
             'engageai-dashboard',
             __('Set up a channel', 'engage-ai'),
@@ -163,33 +214,40 @@ final class EngageAI_Plugin
             'engageai-channel-setup',
             [EngageAI_Admin_Channel_Setup::instance(), 'render_page']
         );
+        remove_submenu_page('engageai-dashboard', 'engageai-channel-setup');
 
-        add_submenu_page(
-            'engageai-dashboard',
-            __('Agents', 'engage-ai'),
-            __('Agents', 'engage-ai'),
-            'manage_options',
-            'engageai-agents',
-            [EngageAI_Admin_Agents::instance(), 'render_page']
-        );
+        if ($this->any_agent_active()) {
+            add_submenu_page(
+                'engageai-dashboard',
+                __('Agents', 'engage-ai'),
+                __('Agents', 'engage-ai'),
+                'manage_options',
+                'engageai-agents',
+                [EngageAI_Admin_Agents::instance(), 'render_page']
+            );
+        }
 
-        add_submenu_page(
-            'engageai-dashboard',
-            __('Analytics', 'engage-ai'),
-            __('Analytics', 'engage-ai'),
-            'manage_options',
-            'engageai-analytics',
-            [EngageAI_Admin_Analytics::instance(), 'render_page']
-        );
+        if ($this->module_active('analytics')) {
+            add_submenu_page(
+                'engageai-dashboard',
+                __('Analytics', 'engage-ai'),
+                __('Analytics', 'engage-ai'),
+                'manage_options',
+                'engageai-analytics',
+                [EngageAI_Admin_Analytics::instance(), 'render_page']
+            );
+        }
 
-        add_submenu_page(
-            'engageai-dashboard',
-            __('Engagement Cycle', 'engage-ai'),
-            __('Engagement Cycle', 'engage-ai'),
-            'manage_options',
-            'engageai-cycle',
-            [EngageAI_Admin_Cycle::instance(), 'render_page']
-        );
+        if ($this->module_active('engagement_cycle')) {
+            add_submenu_page(
+                'engageai-dashboard',
+                __('Engagement Cycle', 'engage-ai'),
+                __('Engagement Cycle', 'engage-ai'),
+                'manage_options',
+                'engageai-cycle',
+                [EngageAI_Admin_Cycle::instance(), 'render_page']
+            );
+        }
 
         add_submenu_page(
             'engageai-dashboard',
@@ -372,5 +430,8 @@ final class EngageAI_Plugin
 
 register_activation_hook(__FILE__, ['EngageAI_Plugin', 'activate']);
 register_deactivation_hook(__FILE__, ['EngageAI_Cron', 'unschedule']);
+// The Site Brain module keeps its own schedule; deactivating the plugin has to
+// stop that too, or a disabled site keeps re-crawling itself in the background.
+register_deactivation_hook(__FILE__, ['EngageAI_Site_Brain', 'stop']);
 
 EngageAI_Plugin::instance();

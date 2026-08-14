@@ -201,6 +201,7 @@ class EngageAI_Admin_Channels
         ?>
         <div class="wrap engageai-wrap">
             <h1><?php esc_html_e('Channels', 'engage-ai'); ?></h1>
+            <?php self::render_tabs('connected'); ?>
             <?php $this->render_notice(); ?>
             <?php if ($error !== ''): ?>
                 <div class="notice notice-error"><p><?php echo esc_html($error); ?></p></div>
@@ -213,11 +214,6 @@ class EngageAI_Admin_Channels
                 <strong><?php esc_html_e('Connecting does not start posting.', 'engage-ai'); ?></strong>
                 <?php esc_html_e('Content still goes out only when you publish it from the Content Studio, unless you switch automatic posting on for a channel below.', 'engage-ai'); ?>
             </p>
-            <p style="margin:1rem 0 1.5rem;">
-                <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=engageai-channel-setup')); ?>"><?php esc_html_e('Walk me through setting one up →', 'engage-ai'); ?></a>
-                <span class="description" style="margin-left:.5rem;"><?php esc_html_e('Step by step, including where to find an access token.', 'engage-ai'); ?></span>
-            </p>
-
             <?php foreach ($channels as $channel): ?>
                 <?php $this->render_channel_card((array) $channel); ?>
             <?php endforeach; ?>
@@ -231,6 +227,32 @@ class EngageAI_Admin_Channels
                 <?php esc_html_e('Your website needs no separate authorization — this plugin already publishes to it, as a draft you approve.', 'engage-ai'); ?>
             </p>
         </div>
+        <?php
+    }
+
+    /**
+     * The one nav shared by this page and the setup wizard. They are two halves
+     * of a single job - the wizard walks you to a token, this page is where you
+     * hand it over - so they read as two tabs of one screen rather than two
+     * unrelated menu items you have to know to alternate between.
+     *
+     * @param string $current 'connected' or 'setup'
+     */
+    public static function render_tabs(string $current): void
+    {
+        $tabs = [
+            'connected' => ['engageai-channels', __('Connected', 'engage-ai')],
+            'setup' => ['engageai-channel-setup', __('Set one up', 'engage-ai')],
+        ];
+        ?>
+        <nav class="nav-tab-wrapper" style="margin-bottom:1.25rem;">
+            <?php foreach ($tabs as $key => [$page, $label]): ?>
+                <a
+                    class="nav-tab<?php echo $key === $current ? ' nav-tab-active' : ''; ?>"
+                    href="<?php echo esc_url(admin_url('admin.php?page=' . $page)); ?>"
+                ><?php echo esc_html($label); ?></a>
+            <?php endforeach; ?>
+        </nav>
         <?php
     }
 

@@ -168,29 +168,12 @@ class EngageAI_Api_Client
         return $this->request('GET', '/content?organization_id=' . $org_id);
     }
 
-    /**
-     * Per-channel content-type catalog (5 types per channel, each with what
-     * engagement lever it raises) for the content generator's picker.
-     * @return array|WP_Error {channel: [{key, label, raises}, ...], ...}
-     */
-    public function get_content_types()
-    {
-        return $this->request('GET', '/content/types');
-    }
-
-    /**
-     * The content-design agent: one topic turned into a coordinated post for
-     * each channel, with the media each needs (image prompt / video storyboard).
-     * @param string[] $channels channel keys to include
-     * @return array|WP_Error list of the saved ContentItems
-     */
-    public function generate_pack(int $org_id, string $topic, array $channels)
-    {
-        return $this->request('POST', '/content/pack?organization_id=' . $org_id, [
-            'topic' => $topic !== '' ? $topic : null,
-            'channels' => array_values($channels),
-        ], true, 120);
-    }
+    // get_content_types() / generate_pack() / suggest_content() used to live here,
+    // backing the Content page's own generate forms on the older /content/types,
+    // /content/pack and /content/suggest endpoints. That page is a library now and
+    // creation goes through the Studio and Campaigns, so nothing called them. The
+    // API routes still exist and are untouched - only this client's use of them is
+    // gone, so an older plugin build keeps working against the same API.
 
     /**
      * Generates the image for one content piece from its stored prompt.
@@ -444,22 +427,6 @@ class EngageAI_Api_Client
             $path .= '&force=true';
         }
         return $this->request('POST', $path, null, true, 180);
-    }
-
-    /**
-     * Asks the API to draft content and saves it as tracked content. With
-     * $channel + $content_type set, drafts that content type for that channel
-     * (shaped to raise its engagement score); otherwise drafts website posts
-     * tailored to the site type. Backed by an LLM call, so longer timeout.
-     * @return array|WP_Error list of the newly-suggested ContentItems
-     */
-    public function suggest_content(int $org_id, int $count = 3, string $channel = '', string $content_type = '')
-    {
-        $path = '/content/suggest?organization_id=' . $org_id . '&count=' . $count;
-        if ($channel !== '' && $content_type !== '') {
-            $path .= '&channel=' . rawurlencode($channel) . '&content_type=' . rawurlencode($content_type);
-        }
-        return $this->request('POST', $path, null, true, 120);
     }
 
     /**

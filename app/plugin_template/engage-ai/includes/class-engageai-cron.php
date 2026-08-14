@@ -59,6 +59,13 @@ class EngageAI_Cron
             EngageAI_Plugin::report_site_facts($client, (int) $org_id);
         }
 
+        // Pull the org's module list back the other way, so a module switched
+        // on or off in the console (rather than in Settings here) still reaches
+        // this site's admin menu without anyone re-saving Settings.
+        if (class_exists('EngageAI_Admin_Settings')) {
+            EngageAI_Admin_Settings::refresh_cached_modules($client);
+        }
+
         if (!self::niche_enabled($client, $org_id)) {
             return;
         }

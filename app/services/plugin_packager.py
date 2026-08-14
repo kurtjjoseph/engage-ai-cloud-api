@@ -3,9 +3,10 @@ import json
 import zipfile
 from pathlib import Path
 
-# Copied from ~/Downloads/engage-ai-wordpress/engage-ai - not a live checkout.
-# Re-sync (rsync -a, excluding .DS_Store) whenever the plugin changes, or
-# personalized downloads will silently ship a stale version.
+# The single source of the WordPress plugin. Edit the plugin here and commit
+# it with this repo - there is no second copy to keep in step, and no sync
+# step that can be forgotten. (It used to be mirrored from a standalone
+# engage-ai-wordpress repo by hand; that repo is archived, see its ARCHIVED.md.)
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "plugin_template" / "engage-ai"
 
 

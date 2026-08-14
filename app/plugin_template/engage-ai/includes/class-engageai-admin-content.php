@@ -5,10 +5,17 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * The Content page: a log of everything Engage AI has generated for this site,
- * plus a one-click "Suggest content" that asks the API to draft a few website
- * posts tailored to this site's type (church / ecommerce / business). Each
- * suggestion can be turned into a WordPress draft to review and publish.
+ * The Content Library: everything Engage AI has ever written for this site, in
+ * one list. It is a library, not a generator - content is created in the
+ * Content Studio (one piece, step by step) or in Campaigns (a whole run at
+ * once), and both land here.
+ *
+ * This page used to carry its own pair of generate forms as well, on an older
+ * pipeline (/content/pack and /content/suggest). They produced items that could
+ * not re-enter the Studio - no quality check, no revise pass, no channel
+ * publish - so the same job had three different answers depending on which page
+ * you happened to open. The forms are gone; each row now opens in the Studio
+ * instead, which is the one pipeline everything else already uses.
  */
 class EngageAI_Admin_Content
 {
@@ -32,32 +39,9 @@ class EngageAI_Admin_Content
 
     public function register_hooks(): void
     {
-        add_action('admin_post_engageai_suggest_content', [$this, 'handle_suggest']);
         add_action('admin_post_engageai_draft_content', [$this, 'handle_draft']);
-        add_action('admin_post_engageai_generate_pack', [$this, 'handle_pack']);
         add_action('admin_post_engageai_generate_image', [$this, 'handle_generate_image']);
         add_action('admin_post_engageai_generate_video', [$this, 'handle_generate_video']);
-    }
-
-    public function handle_pack(): void
-    {
-        if (!current_user_can('manage_options') || !check_admin_referer('engageai_generate_pack')) {
-            wp_die(esc_html__('You are not allowed to do this.', 'engage-ai'));
-        }
-        $org_id = $this->client->get_organization_id();
-        if (!$org_id) {
-            $this->redirect(['error' => 'not_ready']);
-        }
-        $topic = sanitize_text_field($_POST['topic'] ?? '');
-        $channels = array_map('sanitize_key', (array) ($_POST['channels'] ?? []));
-        if (empty($channels)) {
-            $this->redirect(['error' => rawurlencode(__('Pick at least one channel.', 'engage-ai'))]);
-        }
-        $result = $this->client->generate_pack((int) $org_id, $topic, $channels);
-        if (is_wp_error($result)) {
-            $this->redirect(['error' => rawurlencode($result->get_error_message())]);
-        }
-        $this->redirect(['suggested' => is_array($result) ? count($result) : 0]);
     }
 
     public function handle_generate_image(): void
@@ -140,29 +124,6 @@ class EngageAI_Admin_Content
         return $attachment_id;
     }
 
-    public function handle_suggest(): void
-    {
-        if (!current_user_can('manage_options') || !check_admin_referer('engageai_suggest_content')) {
-            wp_die(esc_html__('You are not allowed to do this.', 'engage-ai'));
-        }
-        $org_id = $this->client->get_organization_id();
-        if (!$org_id) {
-            $this->redirect(['error' => 'not_ready']);
-        }
-        $count = max(1, min(6, (int) ($_POST['count'] ?? 3)));
-        $channel = '';
-        $type = '';
-        $selection = sanitize_text_field($_POST['channel_type'] ?? '');
-        if (strpos($selection, '|') !== false) {
-            [$channel, $type] = array_map('sanitize_key', explode('|', $selection, 2));
-        }
-        $result = $this->client->suggest_content((int) $org_id, $count, $channel, $type);
-        if (is_wp_error($result)) {
-            $this->redirect(['error' => rawurlencode($result->get_error_message())]);
-        }
-        $this->redirect(['suggested' => is_array($result) ? count($result) : 0]);
-    }
-
     public function handle_draft(): void
     {
         if (!current_user_can('manage_options') || !check_admin_referer('engageai_draft_content')) {
@@ -217,77 +178,28 @@ class EngageAI_Admin_Content
         $site_type = class_exists('EngageAI_Plugin') ? EngageAI_Plugin::detect_site_type() : 'business';
         $items = $this->client->get_content($org_id);
         $items = is_wp_error($items) ? [] : $items;
-        $types = $this->client->get_content_types();
-        $types = is_wp_error($types) ? [] : $types;
         ?>
         <div class="wrap engageai-wrap">
-            <h1><?php esc_html_e('Content', 'engage-ai'); ?></h1>
+            <h1><?php esc_html_e('Content Library', 'engage-ai'); ?></h1>
             <?php $this->render_notice(); ?>
 
             <p class="description">
                 <?php
                 printf(
                     /* translators: %s: detected site type, e.g. "church" */
-                    esc_html__('Content is tailored to your site type: %s, and to each channel\'s engagement-score levers. Start with a campaign (one topic across channels) or draft a single piece.', 'engage-ai'),
+                    esc_html__('Everything Engage AI has written for this site, tailored to your site type: %s. Open any piece in the Content Studio to check it, edit it, add the image or video, and publish it.', 'engage-ai'),
                     '<strong>' . esc_html($site_type) . '</strong>'
                 );
                 ?>
             </p>
 
-            <h2><?php esc_html_e('Create a campaign', 'engage-ai'); ?></h2>
-            <p class="description"><?php esc_html_e('One topic, drafted for every channel you pick - each with the copy and the media (image or video plan) that channel needs.', 'engage-ai'); ?></p>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:12px 0;">
-                <input type="hidden" name="action" value="engageai_generate_pack">
-                <?php wp_nonce_field('engageai_generate_pack'); ?>
-                <p>
-                    <label for="engageai-topic"><strong><?php esc_html_e('Topic', 'engage-ai'); ?></strong></label><br>
-                    <input type="text" id="engageai-topic" name="topic" class="large-text" placeholder="<?php esc_attr_e('e.g. our new done-for-you website service — or leave blank to let the agent choose', 'engage-ai'); ?>">
-                </p>
-                <fieldset style="margin-bottom:10px;">
-                    <legend><strong><?php esc_html_e('Channels', 'engage-ai'); ?></strong></legend>
-                    <?php
-                    $default_on = ['website', 'instagram', 'facebook'];
-                    foreach (['website', 'google_business', 'youtube', 'facebook', 'instagram', 'linkedin', 'twitter_x', 'news_mentions'] as $ch):
-                        ?>
-                        <label style="display:inline-block;margin:4px 16px 4px 0;">
-                            <input type="checkbox" name="channels[]" value="<?php echo esc_attr($ch); ?>" <?php checked(in_array($ch, $default_on, true)); ?>>
-                            <?php echo esc_html($this->channel_label($ch)); ?>
-                        </label>
-                    <?php endforeach; ?>
-                </fieldset>
-                <button type="submit" class="button button-primary"><?php esc_html_e('Generate campaign', 'engage-ai'); ?></button>
-            </form>
-
-            <hr>
-            <h2><?php esc_html_e('Or draft a single piece', 'engage-ai'); ?></h2>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:12px 0;">
-                <input type="hidden" name="action" value="engageai_suggest_content">
-                <?php wp_nonce_field('engageai_suggest_content'); ?>
-                <label for="engageai-channel-type"><?php esc_html_e('What to create', 'engage-ai'); ?></label>
-                <select id="engageai-channel-type" name="channel_type" style="min-width:340px;">
-                    <option value=""><?php esc_html_e('Website posts (tailored to site type)', 'engage-ai'); ?></option>
-                    <?php foreach ($types as $channel => $channel_types): ?>
-                        <optgroup label="<?php echo esc_attr($this->channel_label($channel)); ?>">
-                            <?php foreach ($channel_types as $ct): ?>
-                                <option value="<?php echo esc_attr($channel . '|' . ($ct['key'] ?? '')); ?>">
-                                    <?php echo esc_html(($ct['label'] ?? '') . ' — raises ' . ($ct['raises'] ?? '')); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </optgroup>
-                    <?php endforeach; ?>
-                </select>
-                <label for="engageai-count" style="margin-left:10px;"><?php esc_html_e('How many', 'engage-ai'); ?></label>
-                <select id="engageai-count" name="count">
-                    <?php foreach ([2, 3, 4, 5] as $n): ?>
-                        <option value="<?php echo esc_attr((string) $n); ?>" <?php selected($n, 3); ?>><?php echo esc_html((string) $n); ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <button type="submit" class="button button-primary"><?php esc_html_e('Generate content', 'engage-ai'); ?></button>
-            </form>
-
-            <h2><?php esc_html_e('Generated content', 'engage-ai'); ?></h2>
+            <p style="margin:16px 0;">
+                <a class="button button-primary" href="<?php echo esc_url(admin_url('admin.php?page=engageai-studio')); ?>"><?php esc_html_e('Create a piece →', 'engage-ai'); ?></a>
+                <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=engageai-campaigns')); ?>" style="margin-left:6px;"><?php esc_html_e('Plan a campaign →', 'engage-ai'); ?></a>
+            </p>
+            <h2><?php esc_html_e('Everything created so far', 'engage-ai'); ?></h2>
             <?php if (empty($items)): ?>
-                <p><?php esc_html_e('Nothing yet. Use "Generate content" above to draft your first posts.', 'engage-ai'); ?></p>
+                <p><?php esc_html_e('Nothing yet. Create your first piece in the Content Studio, or plan a whole run in Campaigns.', 'engage-ai'); ?></p>
             <?php else: ?>
                 <table class="widefat striped">
                     <thead>
@@ -353,6 +265,19 @@ class EngageAI_Admin_Content
                                     <?php endif; ?>
                                 </td>
                                 <td>
+                                    <?php
+                                    // The Studio is where a piece gets checked, revised, given its
+                                    // image or video and published to a channel. Every row leads
+                                    // there, so the library is a way in to the one pipeline rather
+                                    // than a parallel one.
+                                    $studio_url = add_query_arg(
+                                        ['page' => 'engageai-studio', 'step' => 'draft', 'content_id' => $id],
+                                        admin_url('admin.php')
+                                    );
+                                    ?>
+                                    <p style="margin:0 0 6px;">
+                                        <a class="button button-primary" href="<?php echo esc_url($studio_url); ?>"><?php esc_html_e('Open in Studio', 'engage-ai'); ?></a>
+                                    </p>
                                     <?php if ($is_website_post): ?>
                                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom:6px;">
                                             <input type="hidden" name="action" value="engageai_draft_content">
@@ -414,16 +339,7 @@ class EngageAI_Admin_Content
 
     private function render_notice(): void
     {
-        if (isset($_GET['suggested'])) {
-            printf(
-                '<div class="notice notice-success is-dismissible"><p>%s</p></div>',
-                esc_html(sprintf(
-                    /* translators: %d: number of drafts generated */
-                    _n('Generated %d new draft below.', 'Generated %d new drafts below.', (int) $_GET['suggested'], 'engage-ai'),
-                    (int) $_GET['suggested']
-                ))
-            );
-        } elseif (isset($_GET['image']) || isset($_GET['video'])) {
+        if (isset($_GET['image']) || isset($_GET['video'])) {
             $is_video = isset($_GET['video']);
             $att = (int) ($_GET[$is_video ? 'video' : 'image']);
             $url = wp_get_attachment_url($att);
@@ -453,7 +369,7 @@ class EngageAI_Admin_Content
     {
         ?>
         <div class="wrap engageai-wrap">
-            <h1><?php esc_html_e('Content', 'engage-ai'); ?></h1>
+            <h1><?php esc_html_e('Content Library', 'engage-ai'); ?></h1>
             <div class="notice notice-warning"><p>
                 <?php esc_html_e('Connect your Engage AI account and select an organization on the Settings page first.', 'engage-ai'); ?>
             </p></div>
