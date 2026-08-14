@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.27.0
+ * Version: 0.27.2
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.27.0');
+define('ENGAGEAI_VERSION', '0.27.2');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -199,22 +199,28 @@ final class EngageAI_Plugin
         // then hands you back to Channels to actually connect it. It is a tab on
         // that page now rather than a second menu item.
         //
-        // Registered against the real parent and then removed from the sidebar,
-        // rather than registered with a null parent: null is the old idiom for a
-        // hidden page, but passing null to add_submenu_page()'s string $parent_slug
-        // is deprecated as of PHP 8.1 and this plugin supports 8.0 upward. Removing
-        // it afterwards leaves the page fully registered - every existing link to
-        // ?page=engageai-channel-setup still resolves - and only takes it out of
-        // the menu.
+        // An empty parent slug is how WordPress registers a page that is routable
+        // but absent from the sidebar: add_submenu_page() still fills in
+        // $_registered_pages, and records $_parent_pages[slug] = false, which is
+        // what admin.php's user_can_access_admin_page() needs to let the request
+        // through.
+        //
+        // Do NOT "register under the real parent, then remove_submenu_page()" -
+        // that looks equivalent and is not. remove_submenu_page() takes the entry
+        // back out of $submenu, and the capability check reads $submenu, so every
+        // link to ?page=engageai-channel-setup answers "Sorry, you are not allowed
+        // to access this page." That shipped in 0.27.0; it is what 0.27.2 fixes.
+        //
+        // Empty string rather than null only because null into a string context is
+        // deprecated on PHP 8.1+; both are falsy and take the same branch.
         add_submenu_page(
-            'engageai-dashboard',
+            '',
             __('Set up a channel', 'engage-ai'),
             __('Set up a channel', 'engage-ai'),
             'manage_options',
             'engageai-channel-setup',
             [EngageAI_Admin_Channel_Setup::instance(), 'render_page']
         );
-        remove_submenu_page('engageai-dashboard', 'engageai-channel-setup');
 
         if ($this->any_agent_active()) {
             add_submenu_page(

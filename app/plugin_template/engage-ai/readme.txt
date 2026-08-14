@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.27.0
+Stable tag: 0.27.2
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -32,6 +32,12 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 Only the pages for your active modules appear in the menu, so this list is longer than what most organizations see.
 
 == Changelog ==
+
+= 0.27.2 =
+* Fixed: "Set up a channel" could not be opened at all in 0.27.0 and 0.27.1. Making it a tab of Channels took it out of the sidebar correctly, but also took away WordPress's permission to load it, so every link to it answered "Sorry, you are not allowed to access this page." The wizard is reachable again, and still lives on the Channels page rather than in the menu.
+
+= 0.27.1 =
+* Fixed: the Content Library offered "Open in Studio" on every piece, including older ones drafted before the Content Studio existed. The Studio cannot reopen those - it has no record of how they were built - so the button led to an editor with blank fields and an error on save. It now appears only on pieces the Studio actually made; older pieces keep the actions they have always had.
 
 = 0.27.0 =
 * New Site Brain module — your website, readable by AI. Everything the rest of the plugin does pushes content out to your channels. This does the opposite: it reads your own site, breaks every page into passages, and publishes the result as a live knowledge base an AI agent can search. Point a chatbot at it and it answers from your actual pages, with a link to the one it used, instead of making something up.

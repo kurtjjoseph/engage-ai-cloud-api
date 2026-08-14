@@ -187,7 +187,7 @@ class EngageAI_Admin_Content
                 <?php
                 printf(
                     /* translators: %s: detected site type, e.g. "church" */
-                    esc_html__('Everything Engage AI has written for this site, tailored to your site type: %s. Open any piece in the Content Studio to check it, edit it, add the image or video, and publish it.', 'engage-ai'),
+                    esc_html__('Everything Engage AI has written for this site, tailored to your site type: %s. Pieces made in the Content Studio open back there to be checked, edited, given their image or video, and published.', 'engage-ai'),
                     '<strong>' . esc_html($site_type) . '</strong>'
                 );
                 ?>
@@ -267,17 +267,26 @@ class EngageAI_Admin_Content
                                 <td>
                                     <?php
                                     // The Studio is where a piece gets checked, revised, given its
-                                    // image or video and published to a channel. Every row leads
-                                    // there, so the library is a way in to the one pipeline rather
-                                    // than a parallel one.
-                                    $studio_url = add_query_arg(
-                                        ['page' => 'engageai-studio', 'step' => 'draft', 'content_id' => $id],
-                                        admin_url('admin.php')
-                                    );
-                                    ?>
-                                    <p style="margin:0 0 6px;">
-                                        <a class="button button-primary" href="<?php echo esc_url($studio_url); ?>"><?php esc_html_e('Open in Studio', 'engage-ai'); ?></a>
-                                    </p>
+                                    // image or video and published to a channel - but only pieces
+                                    // the Studio itself drafted can go back into it. It keeps its
+                                    // state under output_payload.studio, and every /studio/* route
+                                    // rejects a piece without it (400, "This piece wasn't created
+                                    // in the Content Studio"). Older library items - drafted by the
+                                    // retired /content/pack and /content/suggest pipeline - have no
+                                    // such state, so offering them this link would only ever lead
+                                    // to a broken editor and that error. They keep the actions
+                                    // below, which are what they have always supported.
+                                    $is_studio_piece = !empty($out['studio']) && is_array($out['studio']);
+                                    if ($is_studio_piece):
+                                        $studio_url = add_query_arg(
+                                            ['page' => 'engageai-studio', 'step' => 'draft', 'content_id' => $id],
+                                            admin_url('admin.php')
+                                        );
+                                        ?>
+                                        <p style="margin:0 0 6px;">
+                                            <a class="button button-primary" href="<?php echo esc_url($studio_url); ?>"><?php esc_html_e('Open in Studio', 'engage-ai'); ?></a>
+                                        </p>
+                                    <?php endif; ?>
                                     <?php if ($is_website_post): ?>
                                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom:6px;">
                                             <input type="hidden" name="action" value="engageai_draft_content">
