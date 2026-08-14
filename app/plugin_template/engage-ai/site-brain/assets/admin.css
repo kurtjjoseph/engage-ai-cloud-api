@@ -1,0 +1,111 @@
+/* VOM Site Brain — admin screen */
+
+.vom-brain .vom-brain-version {
+	font-size: 12px;
+	font-weight: 400;
+	color: #646970;
+	vertical-align: middle;
+}
+
+.vom-brain .vom-brain-lede {
+	max-width: 60ch;
+	color: #50575e;
+	margin-top: -4px;
+}
+
+.vom-brain .vom-cards {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin: 20px 0 24px;
+}
+
+.vom-brain .vom-card {
+	flex: 1 1 180px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-left: 3px solid #2271b1;
+	border-radius: 3px;
+	padding: 14px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.vom-brain .vom-card-value {
+	font-size: 24px;
+	font-weight: 600;
+	line-height: 1.2;
+	color: #1d2327;
+}
+
+.vom-brain .vom-card-label {
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: .04em;
+	color: #646970;
+}
+
+.vom-brain .vom-table {
+	max-width: 860px;
+	margin-bottom: 24px;
+}
+
+.vom-brain .vom-table .vom-key {
+	width: 260px;
+	font-weight: 600;
+}
+
+.vom-brain .vom-list {
+	margin: 8px 0 20px 18px;
+	list-style: disc;
+}
+
+.vom-brain .vom-pre {
+	background: #1d2327;
+	color: #f0f0f1;
+	padding: 14px 16px;
+	border-radius: 4px;
+	overflow-x: auto;
+	max-width: 860px;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.vom-brain .vom-endpoint,
+.vom-brain .vom-token {
+	display: inline-block;
+	background: #f0f6fc;
+	border: 1px solid #c5d9ed;
+	padding: 6px 10px;
+	border-radius: 3px;
+	font-size: 13px;
+	word-break: break-all;
+}
+
+.vom-brain .vom-token {
+	background: #fcf9e8;
+	border-color: #dba617;
+}
+
+.vom-brain .vom-check {
+	display: inline-block;
+	min-width: 250px;
+	margin: 0 12px 6px 0;
+}
+
+.vom-brain .vom-form {
+	margin: 18px 0;
+}
+
+.vom-brain table.widefat {
+	max-width: 1100px;
+}
+
+.vom-brain table.widefat td {
+	vertical-align: middle;
+}
+
+.vom-brain table.widefat form {
+	margin: 0;
+}
