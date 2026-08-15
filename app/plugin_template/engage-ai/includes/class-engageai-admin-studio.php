@@ -100,7 +100,21 @@ class EngageAI_Admin_Studio
         if (is_wp_error($item)) {
             $this->redirect(['step' => 'idea', 'error' => rawurlencode($item->get_error_message())]);
         }
-        $this->redirect(['step' => 'draft', 'content_id' => (int) ($item['id'] ?? 0)]);
+
+        $content_id = (int) ($item['id'] ?? 0);
+
+        // If this came from the Ideas page, close the loop: link the idea to the
+        // piece it became. Without this the idea stays in the "kept" queue after
+        // it has been written, so the Ideas in-queue never drains and the trail
+        // from idea to published piece is never actually recorded. Deliberately
+        // not fatal - the piece exists either way, and losing the link is worth
+        // far less than losing the draft.
+        $idea_id = (int) ($_POST['idea_id'] ?? 0);
+        if ($idea_id && $content_id) {
+            $this->client->update_idea($org_id, $idea_id, ['content_item_id' => $content_id]);
+        }
+
+        $this->redirect(['step' => 'draft', 'content_id' => $content_id]);
     }
 
     public function handle_save(): void
@@ -437,6 +451,26 @@ class EngageAI_Admin_Studio
     {
         $stored = get_transient(self::IDEAS_TRANSIENT . get_current_user_id());
         $ideas = is_array($stored) ? ($stored['ideas'] ?? []) : [];
+
+        // Arriving from the Ideas page ("Write it"): that idea is the one being
+        // built, so it goes at the front of the list rather than the operator
+        // being asked to generate a fresh batch and find it again. The id is
+        // carried through the draft form so the idea can be linked to whatever
+        // it becomes - see handle_draft().
+        $from_idea_id = isset($_GET['idea_id']) ? absint(wp_unslash($_GET['idea_id'])) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        if ($from_idea_id) {
+            $picked = $this->kept_idea($from_idea_id);
+            if ($picked !== null) {
+                // Prepended, not replacing: a batch the operator generated
+                // moments ago is still theirs to choose from.
+                array_unshift($ideas, $picked);
+                $stored = is_array($stored) ? $stored : [];
+                $stored['ideas'] = $ideas;
+                $stored['goal'] = $stored['goal'] ?? ($picked['goal'] ?? 'awareness');
+                set_transient(self::IDEAS_TRANSIENT . get_current_user_id(), $stored, 30 * MINUTE_IN_SECONDS);
+            }
+        }
+
         if (empty($ideas)) {
             $this->render_restart(__('Those ideas have expired.', 'engage-ai'));
             return;
@@ -457,6 +491,9 @@ class EngageAI_Admin_Studio
                             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                                 <input type="hidden" name="action" value="engageai_studio_draft">
                                 <input type="hidden" name="idea_index" value="<?php echo esc_attr((string) $index); ?>">
+                                <?php if ($from_idea_id): ?>
+                                    <input type="hidden" name="idea_id" value="<?php echo esc_attr((string) $from_idea_id); ?>">
+                                <?php endif; ?>
                                 <?php wp_nonce_field('engageai_studio_draft'); ?>
                                 <div class="eas-idea__controls">
                                     <div>
@@ -496,6 +533,38 @@ class EngageAI_Admin_Studio
     }
 
     /* ----------------------------------------------------------- 3. draft */
+
+    /**
+     * One kept idea from the Ideas page, shaped like the generator's own output
+     * so the rest of this step needs no special case for where it came from.
+     * Null when it can't be fetched - the operator still gets their own batch,
+     * which is a better outcome than an error page.
+     *
+     * @return array|null {headline, angle, why, channel, goal}
+     */
+    private function kept_idea(int $idea_id): ?array
+    {
+        $org_id = (int) $this->client->get_organization_id();
+        if (!$org_id) {
+            return null;
+        }
+        $ideas = $this->client->get_ideas($org_id, 'kept');
+        if (is_wp_error($ideas)) {
+            return null;
+        }
+        foreach ((array) $ideas as $idea) {
+            if (is_array($idea) && (int) ($idea['id'] ?? 0) === $idea_id) {
+                return [
+                    'headline' => (string) ($idea['title'] ?? ''),
+                    'angle' => (string) ($idea['angle'] ?? ''),
+                    'why' => (string) ($idea['rationale'] ?? ''),
+                    'channel' => (string) ($idea['channel'] ?? ''),
+                    'goal' => (string) ($idea['goal'] ?? ''),
+                ];
+            }
+        }
+        return null;
+    }
 
     private function step_draft(int $content_id): void
     {

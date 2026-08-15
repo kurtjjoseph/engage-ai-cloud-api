@@ -139,6 +139,31 @@ def test_ideas_from_another_org_are_not_reachable(client, db_session):
     assert res.status_code in (403, 404)
 
 
+def test_linking_an_idea_to_its_piece_marks_it_written(client, db_session):
+    _, org = _seed(db_session, client)
+    created = client.post(f"/organizations/{org.id}/ideas", json=[{"title": "Worth writing"}]).json()
+
+    res = client.patch(f"/organizations/{org.id}/ideas/{created[0]['id']}", json={"content_item_id": 4242})
+
+    # Without the implied status the idea would keep a content_item_id AND sit
+    # in the kept queue forever - the in-queue would never drain, which is the
+    # exact silent stall the queues exist to surface.
+    body = res.json()
+    assert body["content_item_id"] == 4242
+    assert body["status"] == "drafted"
+    assert client.get(f"/organizations/{org.id}/ideas", params={"status": "kept"}).json() == []
+
+
+def test_an_explicit_status_still_wins_over_the_inferred_one(client, db_session):
+    _, org = _seed(db_session, client)
+    created = client.post(f"/organizations/{org.id}/ideas", json=[{"title": "Linked but parked"}]).json()
+
+    res = client.patch(f"/organizations/{org.id}/ideas/{created[0]['id']}",
+                       json={"content_item_id": 7, "status": "dismissed"})
+
+    assert res.json()["status"] == "dismissed"
+
+
 # --- the calendar ---------------------------------------------------------
 
 

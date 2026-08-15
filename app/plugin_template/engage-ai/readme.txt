@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.31.0
+Stable tag: 0.31.1
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -32,6 +32,9 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 Only the pages for your active modules appear in the menu, so this list is longer than what most organizations see.
 
 == Changelog ==
+
+= 0.31.1 =
+* Fixed: "Write it" on the Ideas page opened the Content Studio but left the idea behind, so you had to type it in again — and the idea stayed in your kept list after it had been written. The idea now arrives in the Studio ready to build, and once written it moves to the Written tab and links to the piece it became. Your kept list actually goes down as you work through it.
 
 = 0.31.0 =
 * Every workflow page now has an in-queue and an out-queue at the top: what has arrived and needs you, and what has already moved on to the next step. No more opening a page to find out whether there is anything to do.

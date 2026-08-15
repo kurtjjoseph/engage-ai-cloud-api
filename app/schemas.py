@@ -304,6 +304,11 @@ class IdeaUpdate(BaseModel):
     goal: str | None = None
     channel: str | None = None
     status: str | None = None
+    # Set when the idea becomes a real piece. Linking implies the idea has been
+    # written, so the router marks it drafted unless told otherwise - a linked
+    # idea still sitting in the "kept" queue would be exactly the kind of work
+    # that looks outstanding forever.
+    content_item_id: int | None = None
 
 
 class IdeaOut(BaseModel):

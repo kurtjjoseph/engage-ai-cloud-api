@@ -123,6 +123,14 @@ def update_idea(
     if "status" in fields and fields["status"] not in STATUSES:
         raise HTTPException(status_code=400, detail=f"status must be one of {', '.join(STATUSES)}")
 
+    # Linking an idea to a piece means it has been written. Inferring the status
+    # here rather than trusting every caller to send both keeps the two facts
+    # from disagreeing: an idea with a content_item_id but still marked "kept"
+    # would sit in the Ideas in-queue forever, which is precisely the silent
+    # stall the queues exist to prevent.
+    if fields.get("content_item_id") and "status" not in fields:
+        fields["status"] = "drafted"
+
     for key, value in fields.items():
         setattr(idea, key, value)
 
