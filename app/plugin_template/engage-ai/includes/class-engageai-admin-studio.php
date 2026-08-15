@@ -339,6 +339,7 @@ class EngageAI_Admin_Studio
             </div>
             <?php $this->render_stepper($steps, $step); ?>
             <?php $this->render_notice(); ?>
+            <?php EngageAI_Queues::render('studio', $this->client); ?>
             <?php
             switch ($step) {
                 case 'idea':
@@ -1096,6 +1097,7 @@ class EngageAI_Admin_Studio
 
     private function redirect(array $args): void
     {
+        EngageAI_Queues::forget();
         wp_safe_redirect($this->url($args));
         exit;
     }

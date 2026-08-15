@@ -867,6 +867,7 @@ class EngageAI_Admin_Campaigns
 
     private function redirect(array $args): void
     {
+        EngageAI_Queues::forget();
         wp_safe_redirect($this->url($args));
         exit;
     }

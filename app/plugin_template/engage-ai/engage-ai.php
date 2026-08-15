@@ -16,6 +16,7 @@ define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-api-client.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-queues.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-post-publisher.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-settings.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-agents.php';

@@ -161,6 +161,7 @@ class EngageAI_Admin_Content
 
     private function redirect(array $args): void
     {
+        EngageAI_Queues::forget();
         wp_safe_redirect(add_query_arg(array_merge(['page' => 'engageai-content'], $args), admin_url('admin.php')));
         exit;
     }
@@ -193,6 +194,7 @@ class EngageAI_Admin_Content
             <h1><?php esc_html_e('Content Library', 'engage-ai'); ?></h1>
             <?php $this->render_tabs('library'); ?>
             <?php $this->render_notice(); ?>
+            <?php EngageAI_Queues::render('library', $this->client); ?>
 
             <p class="description">
                 <?php

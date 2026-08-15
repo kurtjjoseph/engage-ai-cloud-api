@@ -504,6 +504,7 @@ class EngageAI_Admin_Agents
 
     private function redirect_with_notice(string $type, string $message, string $niche = ''): void
     {
+        EngageAI_Queues::forget();
         set_transient('engageai_notice_' . get_current_user_id(), ['type' => $type, 'message' => $message], 60);
         $args = ['page' => 'engageai-agents'];
         if ($niche !== '') {

@@ -228,6 +228,18 @@ class EngageAI_Api_Client
         return $this->request('DELETE', '/organizations/' . $org_id . '/ideas/' . $idea_id);
     }
 
+    // --- the pipeline -----------------------------------------------------
+
+    /**
+     * Every stage's in-queue, out-queue and anything stuck, in one call.
+     * Derived from the work itself on the API side, so it cannot go stale.
+     * @return array|WP_Error {generated_at, stages: {...}, reconciliation: {...}}
+     */
+    public function get_pipeline(int $org_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/pipeline');
+    }
+
     // --- the calendar -----------------------------------------------------
 
     /**

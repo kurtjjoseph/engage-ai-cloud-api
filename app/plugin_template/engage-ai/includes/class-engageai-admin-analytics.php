@@ -498,6 +498,7 @@ class EngageAI_Admin_Analytics
             <h1><?php esc_html_e('Analytics', 'engage-ai'); ?></h1>
             <?php $this->render_tabs('performance'); ?>
             <?php $this->render_notice(); ?>
+            <?php EngageAI_Queues::render('performance', $this->client); ?>
             <hr>
             <h2><?php esc_html_e('Publications', 'engage-ai'); ?></h2>
             <p class="description"><?php esc_html_e('Mark something as published (a generated campaign that went out, or anything posted manually) to track its own performance over time, separate from the channel-wide scans above.', 'engage-ai'); ?></p>
@@ -843,6 +844,7 @@ class EngageAI_Admin_Analytics
 
     private function redirect_with_notice(string $type, string $message): void
     {
+        EngageAI_Queues::forget();
         set_transient('engageai_notice_' . get_current_user_id(), ['type' => $type, 'message' => $message], 60);
         wp_safe_redirect(add_query_arg(['page' => 'engageai-analytics'], admin_url('admin.php')));
         exit;

@@ -75,6 +75,7 @@ class EngageAI_Admin_Calendar
 
     private function redirect(array $args): void
     {
+        EngageAI_Queues::forget();
         wp_safe_redirect(add_query_arg(array_merge(['page' => 'engageai-calendar'], $args), admin_url('admin.php')));
         exit;
     }
@@ -111,6 +112,7 @@ class EngageAI_Admin_Calendar
         <div class="wrap engageai-wrap">
             <h1><?php esc_html_e('Calendar', 'engage-ai'); ?></h1>
             <?php $this->render_notice(); ?>
+            <?php EngageAI_Queues::render('calendar', $this->client); ?>
             <?php if ($error !== ''): ?>
                 <div class="notice notice-error"><p><?php echo esc_html($error); ?></p></div>
             <?php endif; ?>

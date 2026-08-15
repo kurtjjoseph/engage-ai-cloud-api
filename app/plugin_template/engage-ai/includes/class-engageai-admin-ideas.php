@@ -192,6 +192,7 @@ class EngageAI_Admin_Ideas
 
     private function redirect(array $args): void
     {
+        EngageAI_Queues::forget();
         wp_safe_redirect(add_query_arg(array_merge(['page' => 'engageai-ideas'], $args), admin_url('admin.php')));
         exit;
     }
@@ -222,6 +223,7 @@ class EngageAI_Admin_Ideas
         <div class="wrap engageai-wrap">
             <h1><?php esc_html_e('Ideas', 'engage-ai'); ?></h1>
             <?php $this->render_notice(); ?>
+            <?php EngageAI_Queues::render('ideas', $this->client); ?>
             <?php if ($error !== ''): ?>
                 <div class="notice notice-error"><p><?php echo esc_html($error); ?></p></div>
             <?php endif; ?>

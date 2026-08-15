@@ -178,6 +178,7 @@ class EngageAI_Admin_Channels
 
     private function redirect(array $args): void
     {
+        EngageAI_Queues::forget();
         wp_safe_redirect(add_query_arg(array_merge(['page' => 'engageai-channels'], $args), admin_url('admin.php')));
         exit;
     }
@@ -203,6 +204,7 @@ class EngageAI_Admin_Channels
             <h1><?php esc_html_e('Channels', 'engage-ai'); ?></h1>
             <?php self::render_tabs('connected'); ?>
             <?php $this->render_notice(); ?>
+            <?php EngageAI_Queues::render('channels', $this->client); ?>
             <?php if ($error !== ''): ?>
                 <div class="notice notice-error"><p><?php echo esc_html($error); ?></p></div>
             <?php endif; ?>
