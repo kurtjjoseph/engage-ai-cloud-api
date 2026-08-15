@@ -32,6 +32,9 @@ final class EngageAI_Site_Brain
     /** Schema stamp, so a plugin update can migrate the tables. */
     private const DB_VERSION_OPTION = 'engageai_site_brain_db_version';
 
+    /** Set once the one-time setup in provision() has run. */
+    private const PROVISIONED_OPTION = 'engageai_site_brain_provisioned';
+
     /** Where the vendored source lives, relative to the plugin root. */
     private const SUBDIR = 'site-brain/';
 
@@ -60,9 +63,22 @@ final class EngageAI_Site_Brain
         'admin',
     ];
 
+    /**
+     * On by default, including on sites that update into this version without
+     * ever visiting Settings. get_option()'s default only applies when nothing
+     * is stored, so a site that has explicitly switched the brain OFF keeps a
+     * stored 0 and stays off - the default never overrides a decision someone
+     * actually made.
+     *
+     * Note what this means on update: a site that has never touched the setting
+     * starts serving /llms.txt, /llms-full.txt, /.well-known/mcp.json and the
+     * REST endpoints on its own domain. Only published content in the selected
+     * post types is ever served (never users, comments, orders or form
+     * submissions), and it can be switched off in Settings.
+     */
     public static function is_enabled(): bool
     {
-        return (bool) get_option(self::OPTION, false);
+        return (bool) get_option(self::OPTION, true);
     }
 
     /**
@@ -173,6 +189,52 @@ final class EngageAI_Site_Brain
             VOM_Brain_Index::install();
             update_option(self::DB_VERSION_OPTION, self::BRAIN_VERSION, false);
         }
+
+        // Now that the brain is on by default, most sites arrive here having
+        // never pressed the Settings toggle - so the setup that toggle used to
+        // do has to happen on this path too, or the endpoints would answer from
+        // an unseeded, never-crawled index.
+        self::provision();
+    }
+
+    /**
+     * The one-time setup a live brain needs: default settings, the daily
+     * refresh, and a first crawl. Idempotent and cheap to re-enter - the flag
+     * makes it a single option read on every later request, and each step is
+     * separately guarded anyway.
+     *
+     * Deliberately does not call run_batch() here the way the Settings toggle
+     * does: this runs on a normal front-end request, and crawling the site
+     * inline would put the whole first build on whichever visitor happens to
+     * arrive first. queue_full_build() leaves it to the scheduled batch.
+     */
+    private static function provision(): void
+    {
+        if (get_option(self::PROVISIONED_OPTION)) {
+            return;
+        }
+
+        VOM_Brain_Settings::seed();
+
+        // seed() fills the contact email from the WordPress admin_email. That
+        // was reasonable when the brain only ever started because an operator
+        // pressed the button - they were looking at the settings screen and
+        // could see it. Starting by default, it would publish an administrator's
+        // personal address at /llms.txt, on every site that updates, with no
+        // authentication and nobody having asked for it. The site name and
+        // tagline are already public on the site itself; the email is not, so
+        // it stays blank until someone types it in deliberately.
+        if (VOM_Brain_Settings::get('biz_email') === get_option('admin_email')) {
+            VOM_Brain_Settings::update(['biz_email' => '']);
+        }
+
+        if (!wp_next_scheduled('vom_brain_daily')) {
+            wp_schedule_event(time() + 300, 'daily', 'vom_brain_daily');
+        }
+
+        VOM_Brain_Index::queue_full_build();
+
+        update_option(self::PROVISIONED_OPTION, self::BRAIN_VERSION, false);
     }
 
     /**
@@ -220,6 +282,10 @@ final class EngageAI_Site_Brain
         VOM_Brain_Index::queue_full_build();
         VOM_Brain_Index::run_batch();
 
+        // Everything provision() would do has just been done, and done more
+        // eagerly - stamp it so the front-end path doesn't repeat the work.
+        update_option(self::PROVISIONED_OPTION, self::BRAIN_VERSION, false);
+
         self::redirect_with_notice(
             'success',
             __('Site Brain is on and indexing this site. It continues in the background.', 'engage-ai')
@@ -256,7 +322,7 @@ final class EngageAI_Site_Brain
         <hr>
         <h2><?php esc_html_e('8. Site Brain (AI agent access)', 'engage-ai'); ?></h2>
         <p class="description">
-            <?php esc_html_e('Publishes this website as a live knowledge base that AI agents can read: a Model Context Protocol server, an llms.txt briefing and a discovery document. Point a chatbot at it and it answers from your actual pages instead of guessing. Off until you turn it on.', 'engage-ai'); ?>
+            <?php esc_html_e('Publishes this website as a live knowledge base that AI agents can read: a Model Context Protocol server, an llms.txt briefing and a discovery document. Point a chatbot at it and it answers from your actual pages instead of guessing. On by default — only published content in the post types you pick is ever served, and you can switch it off here.', 'engage-ai'); ?>
         </p>
 
         <?php if ($running) : ?>

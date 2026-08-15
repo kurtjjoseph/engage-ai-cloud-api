@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.27.2
+Stable tag: 0.28.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -32,6 +32,10 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 Only the pages for your active modules appear in the menu, so this list is longer than what most organizations see.
 
 == Changelog ==
+
+= 0.28.0 =
+* Site Brain is now on by default. Updating to this version turns it on, including on sites that have never opened its settings: your published pages become readable by AI agents at /llms.txt, /llms-full.txt and /.well-known/mcp.json on your own domain, and the first crawl starts in the background. If you had already switched it off, it stays off — the new default never overrides a choice you made.
+* Only published content in the post types you select is ever served. Never users, comments, orders or form submissions. You can require a token instead of allowing open access, see every agent that called, and switch the whole thing off, all under Settings > Site Brain.
 
 = 0.27.2 =
 * Fixed: "Set up a channel" could not be opened at all in 0.27.0 and 0.27.1. Making it a tab of Channels took it out of the sidebar correctly, but also took away WordPress's permission to load it, so every link to it answered "Sorry, you are not allowed to access this page." The wizard is reachable again, and still lives on the Channels page rather than in the menu.
