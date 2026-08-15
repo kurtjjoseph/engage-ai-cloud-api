@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.28.0
+ * Version: 0.29.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.28.0');
+define('ENGAGEAI_VERSION', '0.29.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -24,6 +24,8 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-cycle.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-dashboard.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-assistant.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-content.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-ideas.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-calendar.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-studio.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-campaigns.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-channels.php';
@@ -93,6 +95,8 @@ final class EngageAI_Plugin
         EngageAI_Admin_Dashboard::instance()->register_hooks();
         EngageAI_Admin_Assistant::instance()->register_hooks();
         EngageAI_Admin_Content::instance()->register_hooks();
+        EngageAI_Admin_Ideas::instance()->register_hooks();
+        EngageAI_Admin_Calendar::instance()->register_hooks();
         EngageAI_Admin_Studio::instance()->register_hooks();
         EngageAI_Admin_Campaigns::instance()->register_hooks();
         EngageAI_Admin_Channels::instance()->register_hooks();
@@ -158,14 +162,34 @@ final class EngageAI_Plugin
             [EngageAI_Admin_Dashboard::instance(), 'render_page']
         );
 
+        // Ordered as the work actually runs, which is the order the product
+        // already names in its own Engagement Cycle: analyse -> plan -> make ->
+        // distribute. Before this the menu read Studio, Campaigns, Library,
+        // which is backwards - a campaign's pieces open INTO the Studio, so the
+        // planning step sat after the step it feeds.
+        //
+        // Dashboard stays first because it is also the top-level slug: whatever
+        // sits here is what clicking "Engage AI" opens, so it has to be the
+        // dashboard. Settings stays last by WordPress convention.
+        if ($this->module_active('analytics')) {
+            add_submenu_page(
+                'engageai-dashboard',
+                __('Analytics', 'engage-ai'),
+                __('Analytics', 'engage-ai'),
+                'manage_options',
+                'engageai-analytics',
+                [EngageAI_Admin_Analytics::instance(), 'render_page']
+            );
+        }
+
         if ($engagement) {
             add_submenu_page(
                 'engageai-dashboard',
-                __('Content Studio', 'engage-ai'),
-                __('Content Studio', 'engage-ai'),
+                __('Ideas', 'engage-ai'),
+                __('Ideas', 'engage-ai'),
                 'manage_options',
-                'engageai-studio',
-                [EngageAI_Admin_Studio::instance(), 'render_page']
+                'engageai-ideas',
+                [EngageAI_Admin_Ideas::instance(), 'render_page']
             );
 
             add_submenu_page(
@@ -179,11 +203,29 @@ final class EngageAI_Plugin
 
             add_submenu_page(
                 'engageai-dashboard',
+                __('Content Studio', 'engage-ai'),
+                __('Content Studio', 'engage-ai'),
+                'manage_options',
+                'engageai-studio',
+                [EngageAI_Admin_Studio::instance(), 'render_page']
+            );
+
+            add_submenu_page(
+                'engageai-dashboard',
                 __('Content Library', 'engage-ai'),
                 __('Content Library', 'engage-ai'),
                 'manage_options',
                 'engageai-content',
                 [EngageAI_Admin_Content::instance(), 'render_page']
+            );
+
+            add_submenu_page(
+                'engageai-dashboard',
+                __('Calendar', 'engage-ai'),
+                __('Calendar', 'engage-ai'),
+                'manage_options',
+                'engageai-calendar',
+                [EngageAI_Admin_Calendar::instance(), 'render_page']
             );
         }
 
@@ -200,20 +242,17 @@ final class EngageAI_Plugin
         // then hands you back to Channels to actually connect it. It is a tab on
         // that page now rather than a second menu item.
         //
-        // An empty parent slug is how WordPress registers a page that is routable
-        // but absent from the sidebar: add_submenu_page() still fills in
-        // $_registered_pages, and records $_parent_pages[slug] = false, which is
-        // what admin.php's user_can_access_admin_page() needs to let the request
-        // through.
+        // Registered with an EMPTY parent slug, which is how WordPress keeps a
+        // page routable while leaving it out of the sidebar: add_submenu_page()
+        // still fills in $_registered_pages and records $_parent_pages[slug] =
+        // false, which is what admin.php's user_can_access_admin_page() needs to
+        // let the request through.
         //
         // Do NOT "register under the real parent, then remove_submenu_page()" -
         // that looks equivalent and is not. remove_submenu_page() takes the entry
         // back out of $submenu, and the capability check reads $submenu, so every
-        // link to ?page=engageai-channel-setup answers "Sorry, you are not allowed
-        // to access this page." That shipped in 0.27.0; it is what 0.27.2 fixes.
-        //
-        // Empty string rather than null only because null into a string context is
-        // deprecated on PHP 8.1+; both are falsy and take the same branch.
+        // link answers "Sorry, you are not allowed to access this page." That
+        // shipped in 0.27.0; 0.27.2 fixed it. scripts/smoke_plugin.mjs asserts it.
         add_submenu_page(
             '',
             __('Set up a channel', 'engage-ai'),
@@ -223,28 +262,6 @@ final class EngageAI_Plugin
             [EngageAI_Admin_Channel_Setup::instance(), 'render_page']
         );
 
-        if ($this->any_agent_active()) {
-            add_submenu_page(
-                'engageai-dashboard',
-                __('Agents', 'engage-ai'),
-                __('Agents', 'engage-ai'),
-                'manage_options',
-                'engageai-agents',
-                [EngageAI_Admin_Agents::instance(), 'render_page']
-            );
-        }
-
-        if ($this->module_active('analytics')) {
-            add_submenu_page(
-                'engageai-dashboard',
-                __('Analytics', 'engage-ai'),
-                __('Analytics', 'engage-ai'),
-                'manage_options',
-                'engageai-analytics',
-                [EngageAI_Admin_Analytics::instance(), 'render_page']
-            );
-        }
-
         if ($this->module_active('engagement_cycle')) {
             add_submenu_page(
                 'engageai-dashboard',
@@ -253,6 +270,17 @@ final class EngageAI_Plugin
                 'manage_options',
                 'engageai-cycle',
                 [EngageAI_Admin_Cycle::instance(), 'render_page']
+            );
+        }
+
+        if ($this->any_agent_active()) {
+            add_submenu_page(
+                'engageai-dashboard',
+                __('Agents', 'engage-ai'),
+                __('Agents', 'engage-ai'),
+                'manage_options',
+                'engageai-agents',
+                [EngageAI_Admin_Agents::instance(), 'render_page']
             );
         }
 

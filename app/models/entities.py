@@ -42,6 +42,13 @@ class Organization(Base):
     # from the org name. Optional; a channel with nothing set here just falls
     # back to name-based search like before this field existed.
     channel_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # How often this org intends to post per channel, as posts per week, e.g.
+    # {"instagram": 3, "facebook": 2, "website": 1}. Intent, not a schedule -
+    # nothing publishes from it. The Calendar compares it against what is
+    # actually planned so "Instagram is two short this week" is answerable;
+    # without a target there is nothing to be short of. A channel absent from
+    # this map simply has no target and is reported as such, never as zero.
+    posting_targets: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Modular activation: which capabilities this org has turned on, e.g.
@@ -573,4 +580,48 @@ class EngagementCycleRun(Base):
     #  "distribution": "simulated"|"real"|"mixed"|"none",
     #  "measurement": "simulated_projection"|"live", "notes": str}
     simulation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Idea(Base):
+    """A kept idea, before it is any particular piece of content.
+
+    The Content Studio has always been able to generate ideas, but nothing held
+    on to them: the plugin cached a batch in a WordPress transient keyed by
+    goal, so they expired, belonged to one site, and vanished the moment the
+    operator changed their mind about the goal. An idea an operator liked on
+    Tuesday could not be found again on Thursday.
+
+    Kept here instead, so an idea outlives the transient, survives a site
+    rebuild, and belongs to the organization rather than to one WordPress
+    install. `content_item_id` is set when an idea is finally drafted, which is
+    what makes "which ideas did we actually use?" answerable.
+    """
+
+    __tablename__ = "ideas"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    angle: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Why this idea is worth doing - the "so what", kept separate from the
+    # angle so a list can show the pitch without the whole rationale.
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The business goal it was generated against (studio_formats.goals_catalog),
+    # e.g. "attract". Free text rather than an enum: the catalog is allowed to
+    # grow without a migration, and an unknown goal is displayable either way.
+    goal: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # Suggested channel, when the generator had an opinion. Never enforced -
+    # the operator can draft any idea to any channel.
+    channel: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # "kept" (default) | "drafted" | "dismissed". Dismissed ideas are retained
+    # rather than deleted so the same idea is not proposed back a week later.
+    status: Mapped[str] = mapped_column(String(20), default="kept", index=True)
+    # "ai" when it came from the generator, "operator" when typed in by hand.
+    source: Mapped[str] = mapped_column(String(20), default="ai")
+    # Set once this idea has been turned into a draft, so the trail from idea
+    # to published piece is not guesswork.
+    content_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("content_items.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

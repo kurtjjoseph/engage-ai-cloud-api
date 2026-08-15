@@ -281,3 +281,51 @@ class EngagementCycleRunOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class IdeaCreate(BaseModel):
+    title: str
+    angle: str | None = None
+    rationale: str | None = None
+    goal: str | None = None
+    channel: str | None = None
+    # "ai" for a generated idea the operator kept, "operator" for one typed in.
+    source: str = "ai"
+
+
+class IdeaUpdate(BaseModel):
+    """Every field optional: this backs both the small edits (retitle, retarget
+    a channel) and the status moves (keep -> dismissed, keep -> drafted), and a
+    caller should never have to resend fields it is not changing."""
+
+    title: str | None = None
+    angle: str | None = None
+    rationale: str | None = None
+    goal: str | None = None
+    channel: str | None = None
+    status: str | None = None
+
+
+class IdeaOut(BaseModel):
+    id: int
+    organization_id: int
+    title: str
+    angle: str | None = None
+    rationale: str | None = None
+    goal: str | None = None
+    channel: str | None = None
+    status: str
+    source: str
+    content_item_id: int | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PostingTargets(BaseModel):
+    """Posts per week per channel, e.g. {"instagram": 3}. A channel left out
+    has no target rather than a target of zero - the Calendar reports those
+    differently, and conflating them would invent a shortfall nobody set."""
+
+    targets: dict[str, int]

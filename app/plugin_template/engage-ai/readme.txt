@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.28.0
+Stable tag: 0.29.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -32,6 +32,13 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 Only the pages for your active modules appear in the menu, so this list is longer than what most organizations see.
 
 == Changelog ==
+
+= 0.29.0 =
+* New Ideas page — the step that was missing. Ideas used to be generated inside the Content Studio and thrown away: they were held for half an hour, tied to the goal you happened to pick, and gone if you changed your mind. Now they are kept for your organisation. Ask for a batch, keep the ones worth doing, add your own, and send one to the Studio when it is time to write it. Turning an idea down keeps it too, so the same suggestion is not offered back to you next week.
+* New Calendar page — everything your campaigns have planned, on one four-week grid, across every channel. Set how often you mean to post per channel and it tells you where you are short. Pieces that were planned but never given a date are listed underneath rather than quietly left out, because a piece with no date is not going out.
+* New "What each channel takes" tab on the Content Library — what every channel can carry and what each kind of piece is for, so you can decide what to make without guessing.
+* Post performance is its own tab on Analytics. It was always there, at the bottom of the page under the channel scans; it answers a different question from "how is our Instagram doing?" and now has its own place to do it.
+* The menu now reads in the order the work happens: see where you stand, get an idea, plan the run, write it, keep it, schedule it, connect where it goes, then measure. It used to list the Content Studio before Campaigns, which is backwards — a campaign's pieces open into the Studio.
 
 = 0.28.0 =
 * Site Brain is now on by default. Updating to this version turns it on, including on sites that have never opened its settings: your published pages become readable by AI agents at /llms.txt, /llms-full.txt and /.well-known/mcp.json on your own domain, and the first crawl starts in the background. If you had already switched it off, it stays off — the new default never overrides a choice you made.

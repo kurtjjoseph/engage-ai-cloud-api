@@ -181,6 +181,13 @@ class EngageAI_Admin_Analytics
             return;
         }
 
+        // How individual pieces performed, as opposed to how a whole channel is
+        // doing. Same page, different question - see render_performance().
+        if (sanitize_key(wp_unslash($_GET['view'] ?? '')) === 'performance') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+            $this->render_performance((int) $org_id);
+            return;
+        }
+
         $snapshots = $this->client->get_analytics_snapshots($org_id);
         if (is_wp_error($snapshots)) {
             if (strpos($snapshots->get_error_message(), '403') !== false || strpos($snapshots->get_error_message(), 'not enabled') !== false) {
@@ -212,12 +219,10 @@ class EngageAI_Admin_Analytics
         $type_ranking = $this->client->get_engagement_type_ranking($org_id);
         $type_ranking = is_wp_error($type_ranking) ? [] : $type_ranking;
 
-        $publications = $this->client->get_publications($org_id);
-        $publications_error = is_wp_error($publications) ? $publications->get_error_message() : null;
-        $publications = is_wp_error($publications) ? [] : $publications;
         ?>
         <div class="wrap engageai-wrap">
             <h1><?php esc_html_e('Analytics', 'engage-ai'); ?></h1>
+            <?php $this->render_tabs('channels'); ?>
             <?php $this->render_notice(); ?>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin: 1em 0;">
@@ -470,6 +475,29 @@ class EngageAI_Admin_Analytics
                 </table>
             <?php endif; ?>
 
+        </div>
+        <?php
+    }
+
+    /**
+     * Performance: how individual published pieces are actually doing.
+     *
+     * This lived at the bottom of the Analytics page, below the channel scans
+     * and the scan history - built, working, and effectively invisible. The
+     * channel scans answer "how is our Instagram doing?"; this answers "how did
+     * that post do?", which is a different question and deserves its own
+     * destination rather than a scroll.
+     */
+    private function render_performance(int $org_id): void
+    {
+        $publications = $this->client->get_publications($org_id);
+        $publications_error = is_wp_error($publications) ? $publications->get_error_message() : null;
+        $publications = is_wp_error($publications) ? [] : $publications;
+        ?>
+        <div class="wrap engageai-wrap">
+            <h1><?php esc_html_e('Analytics', 'engage-ai'); ?></h1>
+            <?php $this->render_tabs('performance'); ?>
+            <?php $this->render_notice(); ?>
             <hr>
             <h2><?php esc_html_e('Publications', 'engage-ai'); ?></h2>
             <p class="description"><?php esc_html_e('Mark something as published (a generated campaign that went out, or anything posted manually) to track its own performance over time, separate from the channel-wide scans above.', 'engage-ai'); ?></p>
@@ -549,6 +577,23 @@ class EngageAI_Admin_Analytics
                 </table>
             <?php endif; ?>
         </div>
+        <?php
+    }
+
+    /** @param string $current 'channels' or 'performance' */
+    private function render_tabs(string $current): void
+    {
+        $tabs = [
+            'channels' => [admin_url('admin.php?page=engageai-analytics'), __('Channels', 'engage-ai')],
+            'performance' => [admin_url('admin.php?page=engageai-analytics&view=performance'), __('Post performance', 'engage-ai')],
+        ];
+        ?>
+        <nav class="nav-tab-wrapper" style="margin-bottom:1.25rem;">
+            <?php foreach ($tabs as $key => [$url, $label]): ?>
+                <a class="nav-tab<?php echo $key === $current ? ' nav-tab-active' : ''; ?>"
+                   href="<?php echo esc_url($url); ?>"><?php echo esc_html($label); ?></a>
+            <?php endforeach; ?>
+        </nav>
         <?php
     }
 

@@ -168,12 +168,100 @@ class EngageAI_Api_Client
         return $this->request('GET', '/content?organization_id=' . $org_id);
     }
 
-    // get_content_types() / generate_pack() / suggest_content() used to live here,
-    // backing the Content page's own generate forms on the older /content/types,
-    // /content/pack and /content/suggest endpoints. That page is a library now and
-    // creation goes through the Studio and Campaigns, so nothing called them. The
-    // API routes still exist and are untouched - only this client's use of them is
-    // gone, so an older plugin build keeps working against the same API.
+    /**
+     * Per-channel content-type catalog: what each channel supports and which
+     * engagement lever each type raises. Read-only reference - it backs the
+     * Content Types tab, not a generator. (generate_pack()/suggest_content()
+     * were removed with the Content page's old forms in 0.26.0; those API
+     * routes still exist and are untouched, nothing here calls them.)
+     * @return array|WP_Error {channel: [{key, label, raises}, ...], ...}
+     */
+    public function get_content_types()
+    {
+        return $this->request('GET', '/content/types');
+    }
+
+    /**
+     * Studio format/goal catalog - the other half of the reference material:
+     * what shapes a piece can take and which business goals it can serve.
+     * @return array|WP_Error
+     */
+    public function get_studio_catalog_reference()
+    {
+        return $this->get_studio_catalog();
+    }
+
+    // --- the idea cache ---------------------------------------------------
+
+    /**
+     * @param string $status '' for everything, or kept|drafted|dismissed
+     * @return array|WP_Error list of ideas, newest first
+     */
+    public function get_ideas(int $org_id, string $status = '')
+    {
+        $path = '/organizations/' . $org_id . '/ideas';
+        if ($status !== '') {
+            $path .= '?status=' . rawurlencode($status);
+        }
+        return $this->request('GET', $path);
+    }
+
+    /**
+     * Keeps a batch in one call - the thing this exists for is "keep these
+     * three of the five you just generated".
+     * @param array $ideas list of {title, angle?, rationale?, goal?, channel?, source?}
+     * @return array|WP_Error the ideas actually created (duplicates are skipped)
+     */
+    public function keep_ideas(int $org_id, array $ideas)
+    {
+        return $this->request('POST', '/organizations/' . $org_id . '/ideas', array_values($ideas));
+    }
+
+    /** @param array $fields any of title/angle/rationale/goal/channel/status */
+    public function update_idea(int $org_id, int $idea_id, array $fields)
+    {
+        return $this->request('PATCH', '/organizations/' . $org_id . '/ideas/' . $idea_id, $fields);
+    }
+
+    public function delete_idea(int $org_id, int $idea_id)
+    {
+        return $this->request('DELETE', '/organizations/' . $org_id . '/ideas/' . $idea_id);
+    }
+
+    // --- the calendar -----------------------------------------------------
+
+    /**
+     * Every planned piece in a window, across all campaigns, plus per-channel
+     * volume against the org's posting targets.
+     * @return array|WP_Error {start, end, items[], undated[], by_channel[]}
+     */
+    public function get_calendar(int $org_id, string $start = '', string $end = '')
+    {
+        $path = '/organizations/' . $org_id . '/calendar';
+        $args = [];
+        if ($start !== '') {
+            $args[] = 'start=' . rawurlencode($start);
+        }
+        if ($end !== '') {
+            $args[] = 'end=' . rawurlencode($end);
+        }
+        if ($args) {
+            $path .= '?' . implode('&', $args);
+        }
+        return $this->request('GET', $path);
+    }
+
+    /** @return array|WP_Error {targets: {channel: posts_per_week}} */
+    public function get_posting_targets(int $org_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/posting-targets');
+    }
+
+    /** Replaces the whole map; a channel at 0 is dropped, not stored. */
+    public function set_posting_targets(int $org_id, array $targets)
+    {
+        return $this->request('PUT', '/organizations/' . $org_id . '/posting-targets', ['targets' => $targets]);
+    }
 
     /**
      * Generates the image for one content piece from its stored prompt.

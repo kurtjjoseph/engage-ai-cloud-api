@@ -42,16 +42,26 @@ const BASE = `http://127.0.0.1:${PORT}`;
 // sidebar but MUST still load when opened directly - the 0.27.0 regression.
 const PAGES = [
   { slug: 'engageai-dashboard', label: 'Dashboard' },
-  { slug: 'engageai-studio', label: 'Content Studio' },
+  { slug: 'engageai-analytics', label: 'Analytics' },
+  { slug: 'engageai-ideas', label: 'Ideas' },
   { slug: 'engageai-campaigns', label: 'Campaigns' },
+  { slug: 'engageai-studio', label: 'Content Studio' },
   { slug: 'engageai-content', label: 'Content Library' },
+  { slug: 'engageai-calendar', label: 'Calendar' },
   { slug: 'engageai-channels', label: 'Channels' },
   { slug: 'engageai-channel-setup', label: 'Set up a channel', hidden: true },
-  { slug: 'engageai-agents', label: 'Agents' },
-  { slug: 'engageai-analytics', label: 'Analytics' },
   { slug: 'engageai-cycle', label: 'Engagement Cycle' },
+  { slug: 'engageai-agents', label: 'Agents' },
   { slug: 'engageai-assistant', label: 'AI Assistant' },
   { slug: 'engageai-settings', label: 'Settings' },
+];
+
+// Tabs are real destinations with their own URL, so they get checked like any
+// other page - a tab that fatals is just as broken as a menu item that does.
+const TABS = [
+  { url: '/wp-admin/admin.php?page=engageai-content&view=types', label: 'Content types' },
+  { url: '/wp-admin/admin.php?page=engageai-analytics&view=performance', label: 'Post performance' },
+  { url: '/wp-admin/admin.php?page=engageai-ideas&view=dismissed', label: 'Dismissed ideas' },
 ];
 
 const PHP_PROBLEM = /(Fatal error|Parse error|Warning:|Deprecated:|Notice:)[^<\n]{0,120}/g;
@@ -213,7 +223,37 @@ const run = async () => {
     }
   }
 
-  console.log(`\n${PAGES.length - failures}/${PAGES.length} pages healthy`);
+  for (const tab of TABS) {
+    const res = await get(tab.url);
+    const body = await res.text();
+    const problems = body.match(PHP_PROBLEM) || [];
+    const denied = body.includes(DENIED);
+    if (res.status === 200 && !denied && problems.length === 0) {
+      console.log(`ok    ${tab.label}  (tab)`);
+    } else {
+      failures++;
+      console.log(`FAIL  ${tab.label}  [HTTP ${res.status}]${denied ? ' refused' : ''}`);
+      for (const p of problems.slice(0, 3)) console.log(`        ${p.trim()}`);
+    }
+  }
+
+  // The menu is supposed to read in workflow order. Registration order decides
+  // it, so a page added in the wrong place silently lands in the wrong slot -
+  // which nothing else here would notice.
+  const expected = PAGES.filter((p) => !p.hidden).map((p) => p.slug);
+  const seen = [...dash.matchAll(/page=(engageai-[a-z-]+)/g)].map((m) => m[1]);
+  const order = expected.filter((slug) => seen.includes(slug));
+  const actual = seen.filter((slug, i) => expected.includes(slug) && seen.indexOf(slug) === i);
+  if (order.join() !== actual.join()) {
+    failures++;
+    console.log('FAIL  menu order');
+    console.log(`        expected: ${order.join(' > ')}`);
+    console.log(`        actual:   ${actual.join(' > ')}`);
+  } else {
+    console.log('ok    menu reads in workflow order');
+  }
+
+  console.log(`\n${failures ? failures + ' failing' : 'all checks passed'}`);
   shutdown(failures ? 1 : 0);
 };
 

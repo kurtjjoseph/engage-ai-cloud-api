@@ -176,11 +176,22 @@ class EngageAI_Admin_Content
         }
         $org_id = (int) $this->client->get_organization_id();
         $site_type = class_exists('EngageAI_Plugin') ? EngageAI_Plugin::detect_site_type() : 'business';
+
+        // The catalog of what each channel supports is reference material, not
+        // something anyone reads daily, so it is a tab here rather than another
+        // menu item - the library is where you already are when you wonder
+        // "what else could this channel take?".
+        if (sanitize_key($_GET['view'] ?? '') === 'types') {
+            $this->render_types_tab();
+            return;
+        }
+
         $items = $this->client->get_content($org_id);
         $items = is_wp_error($items) ? [] : $items;
         ?>
         <div class="wrap engageai-wrap">
             <h1><?php esc_html_e('Content Library', 'engage-ai'); ?></h1>
+            <?php $this->render_tabs('library'); ?>
             <?php $this->render_notice(); ?>
 
             <p class="description">
@@ -325,6 +336,80 @@ class EngageAI_Admin_Content
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    /** @param string $current 'library' or 'types' */
+    private function render_tabs(string $current): void
+    {
+        $tabs = [
+            'library' => [admin_url('admin.php?page=engageai-content'), __('Everything created', 'engage-ai')],
+            'types' => [admin_url('admin.php?page=engageai-content&view=types'), __('What each channel takes', 'engage-ai')],
+        ];
+        ?>
+        <nav class="nav-tab-wrapper" style="margin-bottom:1.25rem;">
+            <?php foreach ($tabs as $key => [$url, $label]): ?>
+                <a class="nav-tab<?php echo $key === $current ? ' nav-tab-active' : ''; ?>"
+                   href="<?php echo esc_url($url); ?>"><?php echo esc_html($label); ?></a>
+            <?php endforeach; ?>
+        </nav>
+        <?php
+    }
+
+    /**
+     * The content-type reference: per channel, what kinds of piece it supports
+     * and which engagement lever each one raises.
+     *
+     * Read-only on purpose. This is the answer to "what could I make for
+     * LinkedIn, and what would it do for us?" - the making itself belongs to
+     * the Content Studio, and putting a generate button here is exactly the
+     * duplication that was removed from this page in 0.26.0.
+     */
+    private function render_types_tab(): void
+    {
+        $types = $this->client->get_content_types();
+        $error = is_wp_error($types) ? $types->get_error_message() : '';
+        $types = is_wp_error($types) ? [] : (array) $types;
+        ?>
+        <div class="wrap engageai-wrap">
+            <h1><?php esc_html_e('Content Library', 'engage-ai'); ?></h1>
+            <?php $this->render_tabs('types'); ?>
+            <?php if ($error !== ''): ?>
+                <div class="notice notice-error"><p><?php echo esc_html($error); ?></p></div>
+            <?php endif; ?>
+
+            <p class="description" style="max-width:46em;">
+                <?php esc_html_e('What each channel can carry, and what each kind of piece is actually for. Use it to decide what to make next — the making happens in the Content Studio.', 'engage-ai'); ?>
+            </p>
+
+            <?php if (empty($types)): ?>
+                <p><?php esc_html_e('The catalog could not be loaded. It comes from the Engage AI API, so this needs a working connection.', 'engage-ai'); ?></p>
+            <?php else: ?>
+                <?php foreach ($types as $channel => $channel_types): ?>
+                    <h2 style="margin-top:1.75rem;"><?php echo esc_html($this->channel_label((string) $channel)); ?></h2>
+                    <table class="widefat striped" style="max-width:52em;">
+                        <thead>
+                            <tr>
+                                <th style="width:32%;"><?php esc_html_e('Kind of piece', 'engage-ai'); ?></th>
+                                <th><?php esc_html_e('What it raises', 'engage-ai'); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ((array) $channel_types as $type): ?>
+                                <?php if (!is_array($type)) { continue; } ?>
+                                <tr>
+                                    <td><strong><?php echo esc_html((string) ($type['label'] ?? $type['key'] ?? '')); ?></strong></td>
+                                    <td><span class="description"><?php echo esc_html((string) ($type['raises'] ?? '—')); ?></span></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endforeach; ?>
+                <p style="margin-top:1.5rem;">
+                    <a class="button button-primary" href="<?php echo esc_url(admin_url('admin.php?page=engageai-studio')); ?>"><?php esc_html_e('Make one in the Studio →', 'engage-ai'); ?></a>
+                </p>
             <?php endif; ?>
         </div>
         <?php
