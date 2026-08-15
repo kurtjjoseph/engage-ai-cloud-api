@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db.migrate import sync_missing_columns
 from app.db.session import Base, engine
-from app.routers import agents, analytics, assistant, auth, calendar, campaigns, channel_connections, content, dashboard, engagement_cycle, ideas, onboarding, organizations, plugin_updates, postiz, publications, studio
+from app.routers import agents, analytics, assistant, auth, calendar, campaigns, channel_connections, chatbot, content, dashboard, engagement_cycle, ideas, onboarding, organizations, plugin_updates, postiz, publications, studio
 from app.services.scheduler import start_scheduler
 
 Base.metadata.create_all(bind=engine)
@@ -36,6 +36,7 @@ app.include_router(postiz.router)
 app.include_router(dashboard.router)
 app.include_router(ideas.router)
 app.include_router(calendar.router)
+app.include_router(chatbot.router)
 
 
 @app.on_event("startup")

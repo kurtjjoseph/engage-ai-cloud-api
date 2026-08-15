@@ -33,6 +33,11 @@ Only the pages for your active modules appear in the menu, so this list is longe
 
 == Changelog ==
 
+= 0.30.0 =
+* New Chatbot module — a chat bubble on every public page that answers visitors from your Site Brain: your actual pages, the business facts you entered, your FAQs. It replies in the visitor's own language, links the page each answer came from, and says plainly when your site does not cover something instead of making something up. When someone is ready to talk to a person it takes their name, email and message, emails you, and keeps the lead with a CSV export.
+* Replies run through your Engage AI account. There is no AI key to create, no second bill, and nothing to configure beyond the greeting and colours.
+* Off by default. Turning it on puts a visible widget on your website and answers strangers in your name, so it waits for you to switch it on under Settings > Chatbot. It needs Site Brain on to have anything to answer from, and tells you if it is not.
+
 = 0.29.0 =
 * New Ideas page — the step that was missing. Ideas used to be generated inside the Content Studio and thrown away: they were held for half an hour, tied to the goal you happened to pick, and gone if you changed your mind. Now they are kept for your organisation. Ask for a batch, keep the ones worth doing, add your own, and send one to the Studio when it is time to write it. Turning an idea down keeps it too, so the same suggestion is not offered back to you next week.
 * New Calendar page — everything your campaigns have planned, on one four-week grid, across every channel. Set how often you mean to post per channel and it tells you where you are short. Pieces that were planned but never given a date are listed underneath rather than quietly left out, because a piece with no date is not going out.

@@ -599,6 +599,11 @@ class EngageAI_Admin_Settings
             // served by this site itself and needs no API account or org, so it
             // must be reachable before - or without - connecting one.
             EngageAI_Site_Brain::render_settings_section();
+
+            // Same reasoning, one step further: the widget and its lead capture
+            // run on this site, so the section has to be reachable without a
+            // connection - even though answering itself needs one.
+            EngageAI_Chatbot::render_settings_section();
             ?>
         </div>
         <?php

@@ -329,3 +329,48 @@ class PostingTargets(BaseModel):
     differently, and conflating them would invent a shortfall nobody set."""
 
     targets: dict[str, int]
+
+
+class ChatbotPassage(BaseModel):
+    """One retrieved passage from the site's own Site Brain index."""
+
+    title: str = ""
+    heading: str = ""
+    url: str = ""
+    passage: str = ""
+
+
+class ChatbotFaq(BaseModel):
+    question: str
+    answer: str
+
+
+class ChatbotGrounding(BaseModel):
+    """Everything the website knows about itself for this one turn.
+
+    Retrieval happens on the WordPress side, where the Site Brain index lives
+    in-process. The site sends what it found; the protocol that decides how the
+    model may use it stays here, so a compromised site cannot rewrite the rules
+    the assistant answers under."""
+
+    persona: str = ""
+    facts: dict[str, str] = Field(default_factory=dict)
+    faqs: list[ChatbotFaq] = Field(default_factory=list)
+    passages: list[ChatbotPassage] = Field(default_factory=list)
+    escalation: str = ""
+    block_pricing: bool = False
+
+
+class ChatbotTurn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class ChatbotReplyIn(BaseModel):
+    messages: list[ChatbotTurn] = Field(min_length=1, max_length=16)
+    language: str = "en"
+    grounding: ChatbotGrounding = Field(default_factory=ChatbotGrounding)
+
+
+class ChatbotReplyOut(BaseModel):
+    reply: str

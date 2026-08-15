@@ -257,6 +257,21 @@ class EngageAI_Api_Client
         return $this->request('GET', '/organizations/' . $org_id . '/posting-targets');
     }
 
+    /**
+     * One reply for the website chatbot, grounded in what the site retrieved
+     * from its own Site Brain.
+     *
+     * A visitor is waiting on this, so it takes the ordinary request timeout
+     * rather than the long one the content-generation calls use.
+     *
+     * @param array $payload {messages, language, grounding}
+     * @return array|WP_Error {reply}
+     */
+    public function chatbot_reply(int $org_id, array $payload)
+    {
+        return $this->request('POST', '/organizations/' . $org_id . '/chatbot/reply', $payload, true, 30);
+    }
+
     /** Replaces the whole map; a channel at 0 is dropped, not stored. */
     public function set_posting_targets(int $org_id, array $targets)
     {

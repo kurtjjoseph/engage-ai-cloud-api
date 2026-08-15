@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.29.0
+ * Version: 0.30.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.29.0');
+define('ENGAGEAI_VERSION', '0.30.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -32,6 +32,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-channels.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-channel-setup.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-cron.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-site-brain.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-chatbot.php';
 
 /**
  * Native WordPress "Update Now" support via Plugin Update Checker, pointed
@@ -106,6 +107,12 @@ final class EngageAI_Plugin
         // it has been switched off in Settings, or if the standalone VOM Site
         // Brain plugin is active and already serving this site.
         EngageAI_Site_Brain::boot();
+
+        // Answers visitors from what the brain holds. Off by default - it puts
+        // a visible widget on every public page - and stands down if the
+        // standalone Vision Outreach Chatbot plugin is active. Booted after the
+        // brain so the retrieval it depends on is already loaded.
+        EngageAI_Chatbot::boot();
     }
 
     /**
