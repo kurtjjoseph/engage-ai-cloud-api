@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.30.0
+Stable tag: 0.31.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -33,7 +33,7 @@ Only the pages for your active modules appear in the menu, so this list is longe
 
 == Changelog ==
 
-= 0.30.0 =
+= 0.31.0 =
 * Every workflow page now has an in-queue and an out-queue at the top: what has arrived and needs you, and what has already moved on to the next step. No more opening a page to find out whether there is anything to do.
 * A third box appears only when something needs attention — a piece scheduled for a day that has passed and never written, a piece with no date at all, or anything in a state the queues do not recognise. Work that quietly did not happen is the thing this is for. Nothing is filtered out for being unexpected; if Engage AI cannot place something it says so instead of hiding it.
 * The queues are worked out from your actual content every time, not stored in a separate list that could drift out of step with it. If the numbers ever failed to add up against what really exists, the page would tell you rather than showing a plausible-looking subset.
