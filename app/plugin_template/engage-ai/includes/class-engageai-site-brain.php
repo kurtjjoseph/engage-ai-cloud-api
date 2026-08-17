@@ -46,7 +46,7 @@ final class EngageAI_Site_Brain
      * plugin's own header, not ENGAGEAI_VERSION - it is reported to agents as
      * the MCP server version, so it has to describe the brain, not its host.
      */
-    private const BRAIN_VERSION = '1.0.0';
+    private const BRAIN_VERSION = '1.1.0';
 
     private static bool $loaded = false;
 
@@ -56,6 +56,7 @@ final class EngageAI_Site_Brain
         'auth',
         'log',
         'index',
+        'kb',
         'aggregator',
         'mcp-server',
         'rest',
@@ -175,6 +176,7 @@ final class EngageAI_Site_Brain
     private static function wire(): void
     {
         VOM_Brain_Index::hooks();
+        VOM_Brain_KB::hooks();
         VOM_Brain_MCP_Server::hooks();
         VOM_Brain_REST::hooks();
         VOM_Brain_Discovery::hooks();

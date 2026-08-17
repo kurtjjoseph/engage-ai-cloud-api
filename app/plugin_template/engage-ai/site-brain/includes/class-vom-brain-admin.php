@@ -88,7 +88,7 @@ class VOM_Brain_Admin {
 	 */
 	private static function tab() {
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'status'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		return in_array( $tab, array( 'status', 'connect', 'content', 'facts', 'activity' ), true ) ? $tab : 'status';
+		return in_array( $tab, array( 'status', 'connect', 'content', 'knowledge', 'facts', 'activity' ), true ) ? $tab : 'status';
 	}
 
 	/**
@@ -212,6 +212,7 @@ class VOM_Brain_Admin {
 			'status'   => __( 'Status', 'vom-site-brain' ),
 			'connect'  => __( 'Connect an agent', 'vom-site-brain' ),
 			'content'  => __( 'What to share', 'vom-site-brain' ),
+			'knowledge'=> __( 'Knowledge base', 'vom-site-brain' ),
 			'facts'    => __( 'Business facts', 'vom-site-brain' ),
 			'activity' => __( 'Agent activity', 'vom-site-brain' ),
 		);
@@ -231,6 +232,9 @@ class VOM_Brain_Admin {
 				break;
 			case 'content':
 				self::tab_content();
+				break;
+			case 'knowledge':
+				self::tab_knowledge();
 				break;
 			case 'facts':
 				self::tab_facts();
@@ -434,6 +438,137 @@ class VOM_Brain_Admin {
 		submit_button( __( 'Save and re-aggregate', 'vom-site-brain' ) );
 		echo '</form>';
 		echo '<p class="description">' . esc_html__( 'Changing the content types or tuning values does not reindex on its own — run a rebuild from the Status tab afterwards.', 'vom-site-brain' ) . '</p>';
+	}
+
+
+	/**
+	 * Knowledge base tab: add files or notes, and manage what is already in.
+	 */
+	private static function tab_knowledge() {
+		$items = VOM_Brain_KB::all();
+		$exts  = implode( ', ', array_map( function ( $e ) { return '.' . $e; }, array_keys( VOM_Brain_KB::handlers() ) ) );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		if ( isset( $_GET['kb_ok'] ) ) {
+			printf(
+				'<div class="notice notice-success is-dismissible"><p>%s</p></div>',
+				esc_html( sprintf( _n( '%d document added to the brain.', '%d documents added to the brain.', (int) $_GET['kb_ok'], 'vom-site-brain' ), (int) $_GET['kb_ok'] ) )
+			);
+		}
+		if ( isset( $_GET['kb_msg'] ) ) {
+			printf( '<div class="notice notice-success is-dismissible"><p>%s</p></div>', esc_html( rawurldecode( wp_unslash( $_GET['kb_msg'] ) ) ) );
+		}
+		if ( isset( $_GET['kb_err'] ) ) {
+			printf( '<div class="notice notice-error is-dismissible"><p>%s</p></div>', esc_html( rawurldecode( wp_unslash( $_GET['kb_err'] ) ) ) );
+		}
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		echo '<p class="description" style="max-width:46em">';
+		esc_html_e( 'Anything you add here joins the same index as the website\'s own pages, so the assistant can ground answers on it and cite it. Documents are private by default: a private document is served only to a client using a token with the "full" scope, never to an anonymous caller.', 'vom-site-brain' );
+		echo '</p>';
+
+		/* ---------------- add ---------------- */
+		echo '<h2>' . esc_html__( 'Add to the knowledge base', 'vom-site-brain' ) . '</h2>';
+		echo '<form method="post" enctype="multipart/form-data" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( 'vom_brain_kb_add' );
+		echo '<input type="hidden" name="action" value="vom_brain_kb_add" />';
+		echo '<table class="form-table" role="presentation"><tbody>';
+
+		echo '<tr><th scope="row"><label for="vom-kb-files">' . esc_html__( 'Files', 'vom-site-brain' ) . '</label></th><td>';
+		echo '<input type="file" id="vom-kb-files" name="files[]" multiple />';
+		echo '<p class="description">' . esc_html( sprintf( __( 'Supported: %s. Word and OpenDocument are read directly; PDFs need a text layer (a scan will be refused rather than indexed as gibberish).', 'vom-site-brain' ), $exts ) ) . '</p>';
+		echo '</td></tr>';
+
+		echo '<tr><th scope="row"><label for="vom-kb-title">' . esc_html__( 'Or paste a note', 'vom-site-brain' ) . '</label></th><td>';
+		echo '<input type="text" id="vom-kb-title" name="title" class="regular-text" placeholder="' . esc_attr__( 'Title', 'vom-site-brain' ) . '" /><br />';
+		echo '<textarea name="text" rows="6" class="large-text code" placeholder="' . esc_attr__( 'Anything the assistant should know that is not written on the site — pricing rules, escalation paths, policies…', 'vom-site-brain' ) . '"></textarea>';
+		echo '<p class="description">' . esc_html__( 'Markdown headings (# …) become sections, which makes retrieval more precise.', 'vom-site-brain' ) . '</p>';
+		echo '</td></tr>';
+
+		echo '<tr><th scope="row">' . esc_html__( 'Visibility', 'vom-site-brain' ) . '</th><td>';
+		echo '<label><input type="radio" name="visibility" value="private" checked /> ' . esc_html__( 'Private — token with "full" scope only', 'vom-site-brain' ) . '</label><br />';
+		echo '<label><input type="radio" name="visibility" value="public" /> ' . esc_html__( 'Public — any agent, same as a published page', 'vom-site-brain' ) . '</label>';
+		echo '</td></tr>';
+
+		echo '<tr><th scope="row"><label for="vom-kb-note">' . esc_html__( 'Note', 'vom-site-brain' ) . '</label></th><td>';
+		echo '<input type="text" id="vom-kb-note" name="note" class="regular-text" placeholder="' . esc_attr__( 'Optional — where this came from, how current it is', 'vom-site-brain' ) . '" />';
+		echo '</td></tr>';
+
+		echo '</tbody></table>';
+		submit_button( __( 'Add to brain', 'vom-site-brain' ) );
+		echo '</form>';
+
+		/* ---------------- list ---------------- */
+		echo '<h2>' . esc_html__( 'In the knowledge base', 'vom-site-brain' ) . '</h2>';
+
+		if ( ! $items ) {
+			echo '<p>' . esc_html__( 'Nothing yet. Everything the brain knows currently comes from the website itself.', 'vom-site-brain' ) . '</p>';
+			return;
+		}
+
+		echo '<table class="widefat striped"><thead><tr>';
+		echo '<th>' . esc_html__( 'Document', 'vom-site-brain' ) . '</th>';
+		echo '<th>' . esc_html__( 'Source', 'vom-site-brain' ) . '</th>';
+		echo '<th>' . esc_html__( 'Words', 'vom-site-brain' ) . '</th>';
+		echo '<th>' . esc_html__( 'Visibility', 'vom-site-brain' ) . '</th>';
+		echo '<th>' . esc_html__( 'Added', 'vom-site-brain' ) . '</th>';
+		echo '<th>' . esc_html__( 'Actions', 'vom-site-brain' ) . '</th>';
+		echo '</tr></thead><tbody>';
+
+		foreach ( $items as $it ) {
+			echo '<tr>';
+			echo '<td><strong>' . esc_html( $it['title'] ) . '</strong>';
+			if ( $it['note'] ) {
+				echo '<br /><span class="description">' . esc_html( $it['note'] ) . '</span>';
+			}
+			if ( ! $it['words'] ) {
+				echo '<br /><span style="color:#b32d2e">' . esc_html__( 'not indexed', 'vom-site-brain' ) . '</span>';
+			}
+			echo '</td>';
+
+			echo '<td>';
+			if ( 'file' === $it['kind'] && $it['file'] ) {
+				// The stored name is prefixed with a hash; show the human part only.
+				$shown = preg_replace( '/^[0-9a-f]{32}-/', '', $it['file'] );
+				echo esc_html( $shown );
+				if ( $it['size'] ) {
+					echo ' <span class="description">' . esc_html( size_format( $it['size'] ) ) . '</span>';
+				}
+			} else {
+				echo '<span class="description">' . esc_html__( 'pasted note', 'vom-site-brain' ) . '</span>';
+			}
+			echo '</td>';
+
+			echo '<td>' . esc_html( number_format_i18n( $it['words'] ) ) . '</td>';
+			echo '<td>' . ( 'public' === $it['visibility']
+				? '<span style="color:#1a7f37">' . esc_html__( 'public', 'vom-site-brain' ) . '</span>'
+				: esc_html__( 'private', 'vom-site-brain' ) ) . '</td>';
+			echo '<td>' . esc_html( $it['added'] ? gmdate( 'Y-m-d', strtotime( $it['added'] . ' UTC' ) ) : '—' ) . '</td>';
+
+			echo '<td>';
+			foreach ( array(
+				'visibility' => 'public' === $it['visibility'] ? __( 'Make private', 'vom-site-brain' ) : __( 'Make public', 'vom-site-brain' ),
+				'reextract'  => __( 'Re-read', 'vom-site-brain' ),
+				'delete'     => __( 'Remove', 'vom-site-brain' ),
+			) as $do => $label ) {
+				if ( 'reextract' === $do && 'file' !== $it['kind'] ) {
+					continue;
+				}
+				echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline">';
+				wp_nonce_field( 'vom_brain_kb_item' );
+				echo '<input type="hidden" name="action" value="vom_brain_kb_item" />';
+				echo '<input type="hidden" name="id" value="' . esc_attr( $it['id'] ) . '" />';
+				echo '<input type="hidden" name="do" value="' . esc_attr( $do ) . '" />';
+				printf(
+					'<button type="submit" class="button button-small"%s>%s</button> ',
+					'delete' === $do ? ' onclick="return confirm(\'' . esc_js( __( 'Remove this document from the brain?', 'vom-site-brain' ) ) . '\')"' : '',
+					esc_html( $label )
+				);
+				echo '</form>';
+			}
+			echo '</td></tr>';
+		}
+		echo '</tbody></table>';
 	}
 
 	/**

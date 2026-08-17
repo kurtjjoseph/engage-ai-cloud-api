@@ -357,6 +357,19 @@ class VOM_Brain_Index {
 		$words    = self::word_count( $plain );
 
 		$visibility = VOM_Brain_Settings::is_private_type( $post->post_type ) ? 'private' : 'public';
+
+		/**
+		 * Filter a single document's visibility.
+		 *
+		 * Post types are public or private as a whole, which is right for pages
+		 * but not for a knowledge base, where one uploaded document may be a
+		 * product manual and the next a staff handbook.
+		 *
+		 * @param string  $visibility 'public' or 'private'.
+		 * @param WP_Post $post       Post being indexed.
+		 */
+		$visibility = apply_filters( 'vom_brain_document_visibility', $visibility, $post );
+		$visibility = ( 'private' === $visibility ) ? 'private' : 'public';
 		$url        = get_permalink( $post );
 		$excerpt    = self::build_excerpt( $post, $plain );
 

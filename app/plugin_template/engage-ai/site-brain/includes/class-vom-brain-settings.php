@@ -127,6 +127,16 @@ class VOM_Brain_Settings {
 		if ( $include_private ) {
 			$types = array_merge( $types, (array) self::get( 'private_post_types', array() ) );
 		}
+
+		// The knowledge base is always indexed — it exists only to be indexed, and
+		// is not something the owner ticks on a list of site content. Individual
+		// documents carry their own visibility, so including it here does not make
+		// private material readable: an unauthenticated caller still sees only the
+		// documents marked public.
+		if ( class_exists( 'VOM_Brain_KB' ) ) {
+			$types[] = VOM_Brain_KB::POST_TYPE;
+		}
+
 		$types = array_values( array_unique( array_filter( $types ) ) );
 		return array_values( array_filter( $types, 'post_type_exists' ) );
 	}
