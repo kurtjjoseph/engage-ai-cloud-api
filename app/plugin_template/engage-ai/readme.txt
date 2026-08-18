@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.34.0
+Stable tag: 0.35.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -32,6 +32,14 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 Only the pages for your active modules appear in the menu, so this list is longer than what most organizations see.
 
 == Changelog ==
+
+= 0.35.0 =
+* Every finished piece now has a Share button. It hands the piece to the sharing your phone and the platforms already have — no accounts to connect, no permissions to grant, nothing to set up. It works today on channels Engage AI cannot post to automatically, which is most of them until you connect them.
+* On a phone or tablet it opens your normal share sheet, so the piece can go to any app you have installed — including Instagram, which offers no web sharing of any kind.
+* On a computer it offers the platforms directly. X, WhatsApp, Telegram, Reddit and Pinterest receive your caption already written. Facebook and LinkedIn accept a link only — they discarded caption support years ago — so those say so plainly and put your caption on the clipboard ready to paste.
+* The caption is copied every time, whatever you pick. Nothing here quietly drops your words and posts an empty frame.
+* Where a piece has a generated image, the share carries it on mobile, and there is a Download image link everywhere else.
+* Replaces the old advice on the Content Library, which was the words "Copy & post" and nothing else.
 
 = 0.34.0 =
 * Engage AI can now actually post. Publishing was a locked step in 0.33.0, which meant everything else could run itself right up to the last move and then stop — finished posts piling up with nobody sending them. It is now a step like the others, on the Automation page.

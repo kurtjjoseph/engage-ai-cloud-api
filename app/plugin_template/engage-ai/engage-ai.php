@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.34.0
+ * Version: 0.35.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,12 +11,13 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.34.0');
+define('ENGAGEAI_VERSION', '0.35.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-api-client.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-queues.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-share.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-post-publisher.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-settings.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-agents.php';

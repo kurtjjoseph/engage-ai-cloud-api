@@ -330,9 +330,23 @@ class EngageAI_Admin_Content
                                                 <button type="submit" class="button"><?php esc_html_e('Generate video', 'engage-ai'); ?></button>
                                             </form>
                                         <?php endif; ?>
-                                    <?php elseif (!$is_website_post): ?>
-                                        <span class="description"><?php esc_html_e('Copy & post', 'engage-ai'); ?></span>
                                     <?php endif; ?>
+
+                                    <?php
+                                    // Every finished piece gets this, not just the ones with no
+                                    // other action. Sharing is the route that works with no API
+                                    // connection at all, which today is most channels for most
+                                    // sites - and it is the only route that reaches Instagram.
+                                    EngageAI_Share::button([
+                                        'id' => $id,
+                                        'title' => (string) ($item['title'] ?? ''),
+                                        'body' => (string) $body,
+                                        'hashtags' => (array) $hashtags,
+                                        'channel' => (string) $channel,
+                                        'url' => $is_website_post ? (string) ($out['website_post']['url'] ?? '') : '',
+                                        'image_url' => EngageAI_Share::image_url($id, $out['image_asset_id'] ?? 0),
+                                    ]);
+                                    ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

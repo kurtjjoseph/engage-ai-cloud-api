@@ -390,6 +390,53 @@ WordPress API call (`services/channels/website.py`), and is honestly marked
 `simulated = True` - so condition 6 excludes it too. Of the six distributable
 channels, only the direct-OAuth and Postiz-relayed paths genuinely post.
 
+### 3.15 Sharing: the publishing route that needs no credentials (added 2026-08-18)
+
+§3.14 made posting automatic, but only through an authorized API connection -
+an OAuth app per channel, in several cases an app review. Until that exists for
+a channel, nothing posts to it, and today that is most channels for most sites.
+The Content Library's advice for a social piece was literally the words "Copy &
+post": select the caption, copy it, find the image in the Media Library,
+download it, open the app, paste, attach. Every one of those steps is somewhere
+an operator gives up.
+
+`EngageAI_Share` hands the piece to the sharing the platforms already have. It
+needs no credentials, no app, no review, and works on every channel today at the
+cost of one human tap. It is the complement to automatic posting, not a
+replacement: automatic where a connection exists, share where it does not.
+
+**The reason this is more than a row of icons is that the platforms are not
+uniform, and pretending otherwise loses people's captions:**
+
+| route | reality |
+|---|---|
+| Web Share API | the real thing - OS share sheet, every installed app, and the **only** route that can carry the image. Needs HTTPS + a user gesture. Mobile Safari/Chrome, desktop Safari/Edge; absent on desktop Firefox. |
+| X, WhatsApp, Telegram, Reddit, Pinterest | intent URLs that genuinely prefill the caption |
+| Facebook, LinkedIn | accept a **URL and nothing else**. Facebook dropped `quote` without the JS SDK; LinkedIn dropped `title`/`summary`. |
+| Instagram, TikTok, YouTube, Google Business | **no web share URL at all.** Mobile reaches them through the OS sheet; on desktop the only truthful offer is "copy the caption, download the image". |
+
+So every path puts the caption on the clipboard whether or not the target could
+take it, and each link says which case it is - `link only — caption copied,
+paste it in` versus nothing at all for the ones that prefill. The failure this
+is written against is a share button that looks like it worked and posts an
+empty frame.
+
+Two details that are easy to get wrong and were:
+
+* **The image is prefetched to a `File` on page load**, not on click.
+  `navigator.share()` must be called synchronously inside the user gesture;
+  awaiting a `fetch` first loses the gesture and iOS Safari rejects the share.
+  If the prefetch has not finished, it shares text-only rather than failing.
+* **A social piece has no URL of its own**, which hid Facebook and LinkedIn
+  entirely. They now fall back to the site's own address, labelled `links to
+  your site` rather than passed off as a link to the piece. Telegram was
+  emitting an empty `url=` param for the same reason, which is unreliable in
+  their clients.
+
+Verified in a browser against a harness built from the shipped CSS/JS: every
+generated intent URL checked for correct encoding, channel-first ordering, the
+right note per case, and no empty `url=` parameters.
+
 ## 4. Deployment scaffolding
 
 `render.yaml` is the active deploy path (see §3.3). The `Dockerfile` and `docker-compose.yml` remain useful for local development (`docker compose up`).
