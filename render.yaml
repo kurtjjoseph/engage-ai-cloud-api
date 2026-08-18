@@ -70,6 +70,15 @@ services:
       # trend line accrue on its own instead of waiting for a manual scan.
       - key: ANALYTICS_SCAN_INTERVAL_HOURS
         value: "720"
+      # How often the queue-drainer sweeps (services/automation.py). Only the
+      # steps an organization has explicitly switched on run, and each is capped
+      # per sweep, so this is a cadence rather than a throttle. Pinned here so
+      # it is tunable from the Render dashboard instead of needing a code change
+      # - it matches the default in config.py, which is what applied before this
+      # key existed. Note the scheduler lives in the web process, so an interval
+      # job's clock restarts on every deploy.
+      - key: AUTOMATION_INTERVAL_HOURS
+        value: "6"
       - key: DATABASE_URL
         fromDatabase:
           name: engage-ai-db
