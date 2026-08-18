@@ -33,6 +33,9 @@
   .field label{display:block;font-size:12px;color:var(--ink-soft);margin-bottom:5px}
   input{width:100%;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--ink);font:inherit}
   input:focus{outline:2px solid var(--accent);outline-offset:0}
+  /* The rule above sizes text fields; a checkbox or radio inheriting width:100%
+     becomes a full-width block and pushes its own label onto the next line. */
+  input[type=checkbox],input[type=radio]{width:auto;padding:0;margin:0 5px 0 0;vertical-align:middle}
   .btn{background:var(--accent);color:var(--accent-ink);border:none;border-radius:8px;padding:10px 16px;font-weight:600;width:100%}
   .btn.ghost{background:none;border:1px solid var(--line);color:var(--ink);width:auto;padding:7px 13px;font-weight:500}
   .btn.ghost.danger{border-color:var(--bad);color:var(--bad)}
@@ -274,7 +277,12 @@
   /* ---------- helpers ---------- */
   function scoreColor(s){ if(s==null) return "var(--dim)"; if(s>=70) return "var(--good)"; if(s>=40) return "var(--warn)"; return "var(--bad)"; }
   function fmtDur(s){ return s==null?"—":(s>=60?(Math.round(s/6)/10)+"m":Math.round(s)+"s"); }
-  function ago(iso){ if(!iso) return "never"; var d=(Date.now()-new Date(iso).getTime())/1000;
+  // The API sends naive UTC ("2026-08-18T15:41:11.740739"), and JS parses a
+  // date-time with no timezone designator as LOCAL time - so every timestamp on
+  // this page was silently out by the browser's UTC offset, reading a run that
+  // had just finished as "2h ago" in CEST. Marked as UTC before parsing.
+  function asUTC(iso){ return /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : iso+"Z"; }
+  function ago(iso){ if(!iso) return "never"; var d=(Date.now()-new Date(asUTC(iso)).getTime())/1000;
     if(d<60) return Math.max(0,Math.round(d))+"s ago"; if(d<3600) return Math.round(d/60)+"m ago";
     if(d<86400) return Math.round(d/3600)+"h ago"; return Math.round(d/86400)+"d ago"; }
   function deltaHtml(d){ if(d==null) return '<span class="delta flat">—</span>';
@@ -286,8 +294,10 @@
     if(!token) return;
     var sm=(location.hash||"").match(/^#\/site\/(\d+)\/scan\/(\d+)/);
     var st=(location.hash||"").match(/^#\/site\/(\d+)\/settings/);
+    var au=(location.hash||"").match(/^#\/site\/(\d+)\/automation/);
     var m=(location.hash||"").match(/^#\/site\/(\d+)/);
     if(sm){ currentView={name:"scan",id:+sm[1],sid:+sm[2]}; loadScan(+sm[1],+sm[2]); }
+    else if(au){ currentView={name:"automation",id:+au[1]}; loadAutomation(+au[1]); }
     else if(st){ currentView={name:"settings",id:+st[1]}; loadSettings(+st[1]); }
     else if(m){ currentView={name:"site",id:+m[1]}; loadDetail(+m[1]); }
     else { currentView={name:"main"}; loadMain(); }
@@ -464,6 +474,7 @@
         +(d.front_url?'<a class="btn ghost" href="'+esc(d.front_url)+'" target="_blank" rel="noopener">Open site ↗</a>':'')
         +(d.wp_admin_url?'<a class="btn ghost" href="'+esc(d.wp_admin_url)+'" target="_blank" rel="noopener">wp-admin ↗</a>':'')
         +(d.analytics_enabled?'<button class="btn ghost primary" id="scanBtn" type="button">↻ Run scan</button>':'')
+        +'<button class="btn ghost" id="autoBtn" type="button">▶ Automation</button>'
         +'<button class="btn ghost" id="settingsBtn" type="button">⚙ Settings</button>'
         +'<span class="spacer"></span>'
         +'<button class="btn ghost danger" id="deleteBtn" type="button">Delete site</button>'
@@ -534,6 +545,7 @@
     el("detail").innerHTML=head+body;
     el("backBtn").addEventListener("click",function(){ location.hash="#/"; });
     el("settingsBtn").addEventListener("click",function(){ location.hash="#/site/"+d.id+"/settings"; });
+    el("autoBtn").addEventListener("click",function(){ location.hash="#/site/"+d.id+"/automation"; });
     var scanBtn=el("scanBtn");
     if(scanBtn) scanBtn.addEventListener("click",function(){
       scanBtn.disabled=true; var prev=scanBtn.textContent; scanBtn.textContent="Starting…";
@@ -740,6 +752,165 @@
   }
 
   /* ================= SCAN DETAILS ================= */
+  /* ---------- automation ----------
+     The workflow's own control surface. It exists here, and not only in the
+     WordPress plugin, because the plugin is the one place this feature could be
+     seen - which meant it could not be demonstrated, reviewed or debugged
+     without a WordPress install standing by. Everything below is the same API
+     the plugin drives, so the two can never describe different state. */
+
+  function loadAutomation(id){
+    el("main").classList.add("hide"); el("detail").classList.remove("hide");
+    stopPolling();
+    Promise.all([
+      api("/admin/site/"+id),
+      api("/organizations/"+id+"/automation"),
+      api("/organizations/"+id+"/automation/runs?limit=5")
+    ]).then(function(r){ lastFetch=new Date().toISOString(); renderAutomation(r[0],r[1],r[2]); })
+      .catch(function(e){ toast(e.message); });
+  }
+
+  function holdingHtml(h){
+    if(!h) return "";
+    // Each line is one specific, fixable reason a finished piece is not moving.
+    // A bare waiting count answers "why is nothing going out?" badly.
+    var labels=[
+      ["no_date","ready, but no date was ever set — nothing will send them"],
+      ["not_due_yet","scheduled for a later day"],
+      ["quality_failed","held back by their own quality check"],
+      ["channel_not_ready","whose channel is not connected and switched on for posting"]
+    ];
+    var out=labels.filter(function(x){ return (h[x[0]]||0)>0; })
+      .map(function(x){ return '<div class="sub">'+h[x[0]]+" "+esc(x[1])+"</div>"; }).join("");
+    return out;
+  }
+
+  function stepRow(id,st){
+    var locked=!st.automatable;
+    var box='<input type="checkbox" class="autoStep" data-key="'+esc(st.key)+'"'
+      +(st.enabled?" checked":"")+(locked?" disabled":"")+">";
+    var note=locked
+      ? '<div class="sub" style="color:var(--bad)">'+esc(st.gate||"")+"</div>"
+      : (st.blocked_by?'<div class="sub" style="color:var(--warn)">'+esc(st.blocked_by)+"</div>":"");
+    var cap=locked?'<span class="sub">—</span>'
+      :'<input type="number" min="1" class="autoCap mono" data-key="'+esc(st.key)+'" value="'+(st.max_per_run||1)
+        +'" style="width:72px;padding:5px 7px">';
+    return "<tr>"
+      +"<td>"+box+"</td>"
+      +'<td><div style="font-weight:600">'+esc(st.label)+"</div>"
+        +'<div class="sub">'+esc(st.description)+"</div>"+note+holdingHtml(st.holding)+"</td>"
+      +'<td class="mono">'+(st.waiting||0)+"</td>"
+      +"<td>"+cap+"</td></tr>";
+  }
+
+  function renderAutomation(d,state,runs){
+    var head='<div class="backrow">'
+      +'<button class="btn ghost" id="backBtn" type="button">← '+esc(d.name)+"</button>"
+      +'<span class="spacer"></span>'
+      +'<button class="btn ghost primary" id="runNowBtn" type="button">▶ Run now</button></div>'
+      +'<div class="detail-head"><div><h1>Automation</h1>'
+      +'<div class="meta">'+esc(d.name)+" · what the workflow may do on its own</div></div></div>";
+
+    var rows=(state.steps||[]).map(function(st){ return stepRow(d.id,st); }).join("");
+    var body='<div class="panel"><h3>Steps</h3>'
+      +'<div class="sub" style="margin-bottom:10px">Each step is something the workflow does the same way every time. '
+      +'Publishing only ever uses a channel you have connected <em>and</em> switched on for posting, and never sends a piece its own quality check has flagged.</div>'
+      +'<div class="tbl-wrap"><table><thead><tr><th style="width:70px">Automate</th><th>Step</th>'
+      +'<th style="width:80px">Waiting</th><th style="width:110px">Max / run</th></tr></thead><tbody>'
+      +rows+"</tbody></table></div></div>";
+
+    // Publish mode. The unbuilt modes are shown and disabled rather than hidden:
+    // the API refuses them, and an operator is owed the reason in the same list.
+    var modes=(state.publish_modes||[]).map(function(m){
+      var ok=(state.publish_modes_supported||[]).indexOf(m)>=0;
+      var why={autonomous:"Posts by itself on the planned day. No approval step.",
+               digest:"Hold everything and release it in one click. Not built yet.",
+               manual:"Approve each piece before it goes. Not built yet."}[m]||"";
+      return '<label style="display:block;margin:5px 0;'+(ok?"":"opacity:.55")+'">'
+        +'<input type="radio" name="pubmode" class="autoMode" value="'+esc(m)+'"'
+        +(state.publish_mode===m?" checked":"")+(ok?"":" disabled")+"> "
+        +esc(m.charAt(0).toUpperCase()+m.slice(1))+' <span class="sub">— '+esc(why)+"</span></label>";
+    }).join("");
+
+    body+='<div class="panel"><h3>When a piece is ready to go out</h3>'+modes
+      +'<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">'
+      +'<label><input type="checkbox" id="autoMaster"'+(state.enabled?" checked":"")+"> "
+      +"<strong>Let the steps above run on their own</strong></label>"
+      +'<div class="sub" style="margin-left:22px">Swept about every '+(state.interval_hours||6)
+      +" hours. With this off, the switched-on steps only run when you press Run now.</div></div></div>";
+
+    var runlist=(runs||[]).map(function(r){
+      var chip=r.status==="done"?'<span class="chip ok">done</span>'
+        :r.status==="failed"?'<span class="chip bad">failed</span>'
+        :r.status==="running"?'<span class="chip warn">running</span>'
+        :'<span class="chip dim">'+esc(r.status)+"</span>";
+      var items=[];
+      (r.steps||[]).forEach(function(st){ (st.items||[]).forEach(function(it){
+        var colour=it.ok===true?"var(--good)":it.ok===false?"var(--bad)":"var(--dim)";
+        items.push('<li><span style="color:'+colour+'">'+esc(it.title||it.ref)+"</span>"
+          +(it.detail?' <span class="sub">— '+esc(it.detail)+"</span>":"")+"</li>");
+      }); });
+      return "<li>"+chip+" <span class=\"sub\">"
+        +(r.trigger==="scheduled"?"on its own":"you pressed Run now")+" · "+ago(r.started_at)
+        +" · "+r.processed+" done, "+r.failed+" failed</span>"
+        +(items.length?'<ul class="runlist" style="margin-top:4px">'+items.join("")+"</ul>":"")
+        +(r.error?'<div class="sub" style="color:var(--bad)">'+esc(r.error)+"</div>":"")+"</li>";
+    }).join("") || '<div class="empty">Nothing has run yet.</div>';
+    body+='<div class="panel"><h3>Recent runs</h3><ul class="runlist">'+runlist+"</ul></div>";
+
+    el("detail").innerHTML=head+body;
+    el("backBtn").addEventListener("click",function(){ location.hash="#/site/"+d.id; });
+
+    function patch(payload,label){
+      return api("/organizations/"+d.id+"/automation",
+        {method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
+        .then(function(){ toast(label); loadAutomation(d.id); })
+        .catch(function(e){
+          // The API refuses an unbuilt publish mode and a gated step. Surfacing
+          // the reason and re-reading beats leaving the control showing a state
+          // the server never accepted.
+          toast(e.message); loadAutomation(d.id);
+        });
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll(".autoStep"),function(box){
+      box.addEventListener("change",function(){
+        var patchSteps={}; patchSteps[box.getAttribute("data-key")]=box.checked;
+        patch({steps:patchSteps}, box.checked?"Step switched on":"Step switched off");
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".autoCap"),function(inp){
+      inp.addEventListener("change",function(){
+        var patchSteps={}; patchSteps[inp.getAttribute("data-key")]={max_per_run:+inp.value};
+        patch({steps:patchSteps},"Limit saved");
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".autoMode"),function(radio){
+      radio.addEventListener("change",function(){ if(radio.checked) patch({publish_mode:radio.value},"Publishing mode saved"); });
+    });
+    el("autoMaster").addEventListener("change",function(){
+      patch({enabled:el("autoMaster").checked}, el("autoMaster").checked?"Unattended runs on":"Unattended runs off");
+    });
+
+    el("runNowBtn").addEventListener("click",function(){
+      var b=el("runNowBtn"); b.disabled=true; b.textContent="Running…";
+      api("/organizations/"+d.id+"/automation/run",{method:"POST"})
+        .then(function(run){
+          // The POST answers the moment the row exists; the drain happens behind
+          // it, so poll the run rather than reporting a result that isn't in yet.
+          var poll=function(){
+            api("/organizations/"+d.id+"/automation/runs/"+run.id).then(function(r){
+              if(r.status==="running" && currentView.name==="automation"){ setTimeout(poll,2000); return; }
+              toast(r.processed+" done, "+r.failed+" failed");
+              if(currentView.name==="automation") loadAutomation(d.id);
+            }).catch(function(e){ toast(e.message); });
+          };
+          setTimeout(poll,1200);
+        })
+        .catch(function(e){ toast(e.message); b.disabled=false; b.textContent="▶ Run now"; });
+    });
+  }
+
   function loadScan(id,sid){
     el("main").classList.add("hide"); el("detail").classList.remove("hide");
     stopPolling();

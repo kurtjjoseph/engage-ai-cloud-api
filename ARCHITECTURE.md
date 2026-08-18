@@ -323,11 +323,15 @@ processed" is not an answer to "what did it write last night" - and "the renders
 didn't happen" and "the renders were never attempted" are different problems
 that a report listing only the steps that acted cannot tell apart.
 
-Surfaced in the plugin twice on purpose: a full Automation page, and a toggle
-under the queue strip on the page that owns each step - an operator looking at
+Surfaced in three places on purpose. In the plugin: a full Automation page, and
+a toggle under the queue strip on the page that owns each step - an operator looking at
 "14 waiting to be checked" is exactly the person who wants to stop checking them
 by hand, and sending them off to find a settings page is how a feature goes
-unused.
+unused. And on the hosted dashboard (`app/static/dashboard.html`,
+`#/site/{id}/automation`), because the plugin was the ONLY place any of this
+could be seen - which meant the feature could not be demonstrated, reviewed or
+debugged without a WordPress install standing by. It drives the same API, so the
+two surfaces cannot describe different state.
 
 ### 3.14 Autonomous publishing: what replaced the blanket gate (added 2026-08-18)
 
