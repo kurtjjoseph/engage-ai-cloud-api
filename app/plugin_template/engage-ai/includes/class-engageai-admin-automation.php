@@ -138,10 +138,16 @@ class EngageAI_Admin_Automation
             $steps[$key] = $entry;
         }
 
-        $result = $this->client->update_automation($org_id, [
+        $patch = [
             'enabled' => !empty($_POST['enabled']),
             'steps' => $steps,
-        ]);
+        ];
+        $mode = sanitize_key($_POST['publish_mode'] ?? '');
+        if ($mode !== '') {
+            $patch['publish_mode'] = $mode;
+        }
+
+        $result = $this->client->update_automation($org_id, $patch);
         if (is_wp_error($result)) {
             $this->redirect(['error' => rawurlencode($result->get_error_message())]);
         }
@@ -224,7 +230,7 @@ class EngageAI_Admin_Automation
             <?php endif; ?>
 
             <p class="description" style="max-width:44em;">
-                <?php esc_html_e('Every step below is something the workflow does the same way every time. Switch one on and Engage AI will do it for the items waiting in that queue, exactly as pressing the button would. Publishing is not one of them, and cannot be made one.', 'engage-ai'); ?>
+                <?php esc_html_e('Every step below is something the workflow does the same way every time. Switch one on and Engage AI will do it for the items waiting in that queue, exactly as pressing the button would. Publishing will only ever use a channel you have connected AND switched on for posting on the Channels page, and will not send a piece its own quality check has flagged.', 'engage-ai'); ?>
             </p>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -271,7 +277,10 @@ class EngageAI_Admin_Automation
                                     </div>
                                 <?php endif; ?>
                             </td>
-                            <td><?php echo esc_html((string) (int) ($step['waiting'] ?? 0)); ?></td>
+                            <td>
+                                <?php echo esc_html((string) (int) ($step['waiting'] ?? 0)); ?>
+                                <?php self::render_holding($step); ?>
+                            </td>
                             <td>
                                 <?php if ($automatable): ?>
                                     <input type="number" name="cap[<?php echo esc_attr($key); ?>]" min="1"
@@ -286,6 +295,8 @@ class EngageAI_Admin_Automation
                     <?php endforeach; ?>
                     </tbody>
                 </table>
+
+                <?php self::render_publish_mode($state); ?>
 
                 <p style="margin-top:1rem;">
                     <label>
@@ -317,6 +328,75 @@ class EngageAI_Admin_Automation
 
             <?php $this->render_runs($runs); ?>
         </div>
+        <?php
+    }
+
+    /**
+     * Why the rest of the pile is not moving.
+     *
+     * The whole reason this exists: "I can't see where the content is actually
+     * being posted" is the obvious question about a publishing step, and a bare
+     * waiting count answers it badly. Each line here names one specific,
+     * fixable reason, so the answer is never "it just isn't".
+     */
+    private static function render_holding(array $step): void
+    {
+        $holding = $step['holding'] ?? null;
+        if (!is_array($holding)) {
+            return;
+        }
+        $labels = [
+            'no_date' => __('%d ready, but no date was ever set — nothing will send them', 'engage-ai'),
+            'not_due_yet' => __('%d scheduled for a later day', 'engage-ai'),
+            'quality_failed' => __('%d held back by their own quality check', 'engage-ai'),
+            'channel_not_ready' => __('%d whose channel is not connected and switched on for posting', 'engage-ai'),
+        ];
+        $lines = [];
+        foreach ($labels as $key => $format) {
+            $count = (int) ($holding[$key] ?? 0);
+            if ($count > 0) {
+                $lines[] = sprintf($format, $count);
+            }
+        }
+        if ($lines === []) {
+            return;
+        }
+        echo '<div class="description" style="margin-top:.3rem;">';
+        foreach ($lines as $line) {
+            echo esc_html($line) . '<br />';
+        }
+        echo '</div>';
+    }
+
+    /** How a finished piece gets released. Only one mode is built so far. */
+    private static function render_publish_mode(array $state): void
+    {
+        $modes = (array) ($state['publish_modes'] ?? []);
+        $supported = (array) ($state['publish_modes_supported'] ?? []);
+        $current = (string) ($state['publish_mode'] ?? 'autonomous');
+        if ($modes === []) {
+            return;
+        }
+        $descriptions = [
+            'autonomous' => __('Posts by itself on the planned day. No approval step.', 'engage-ai'),
+            'digest' => __('Hold everything and release it in one click. Not built yet.', 'engage-ai'),
+            'manual' => __('Approve each piece before it goes. Not built yet.', 'engage-ai'),
+        ];
+        ?>
+        <p style="margin-top:1rem;">
+            <strong><?php esc_html_e('When a piece is ready to go out', 'engage-ai'); ?></strong>
+        </p>
+        <?php foreach ($modes as $mode): ?>
+            <?php $available = in_array($mode, $supported, true); ?>
+            <label style="display:block;margin:.25rem 0 .25rem 1.2em;<?php echo $available ? '' : 'opacity:.6;'; ?>">
+                <input type="radio" name="publish_mode" value="<?php echo esc_attr((string) $mode); ?>"
+                       <?php checked($current === $mode); ?> <?php disabled(!$available); ?> />
+                <?php echo esc_html(ucfirst((string) $mode)); ?>
+                <span class="description">
+                    &mdash; <?php echo esc_html($descriptions[$mode] ?? ''); ?>
+                </span>
+            </label>
+        <?php endforeach; ?>
         <?php
     }
 

@@ -230,3 +230,54 @@ def test_offline_no_network_dependency(db_session, monkeypatch):
 
     assert run.status == "completed"
     assert run.delta >= 1
+
+
+def test_placeholder_copy_is_never_put_on_a_real_account(db_session):
+    """The cycle and the automation drainer read the SAME per-channel auto_post
+    flag. So an operator who switches Instagram on so their finished, quality-
+    checked Studio pieces can go out must not thereby also start posting this
+    module's "[DRAFT - ...] placeholder content pending review" filler to that
+    same account. Nobody would choose that, and they would hear about it from
+    their audience rather than from us.
+
+    Asserted through the registry rather than by inspecting the copy: a real
+    adapter is installed for the channel, and the test is that the cycle
+    declines to use it while its own copy is still templated.
+    """
+    from app.services.channels.base import ChannelAdapter
+    from app.services.channels.registry import register_adapter, unregister_adapter
+
+    class _RealAdapter(ChannelAdapter):
+        simulated = False
+
+        def __init__(self, channel):
+            self.channel = channel
+            self.sent = []
+
+        def distribute(self, db, org, engagement):
+            self.sent.append(engagement)
+            return self._record_publication(db, org, url="https://real.example/p/1", label="live")
+
+    organization = _seed_org_with_baseline(db_session)
+    adapters = {channel: _RealAdapter(channel) for channel in
+                ("website", "facebook", "instagram", "linkedin", "youtube", "twitter_x")}
+    for channel, adapter in adapters.items():
+        register_adapter(channel, adapter)
+    try:
+        run = run_full_cycle(db_session, organization)
+    finally:
+        # Unregister rather than re-registering a simulated adapter - see
+        # ARCHITECTURE 3.12 for the latent bug that pattern caused here before.
+        for channel in adapters:
+            unregister_adapter(channel)
+
+    assert run.engagement_count > 0, "the cycle needs to have planned something for this to mean anything"
+    assert all(adapter.sent == [] for adapter in adapters.values()), \
+        "placeholder copy reached a real adapter"
+    # It still records where the work would have gone, so the cycle's own
+    # reporting is unchanged - it is only the sending that is withheld.
+    publications = db_session.query(Publication).filter(
+        Publication.organization_id == organization.id
+    ).all()
+    assert publications and all(p.simulated for p in publications)
+    assert run.simulation["distribution"] == "simulated"

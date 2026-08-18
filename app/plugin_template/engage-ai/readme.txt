@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.33.0
+Stable tag: 0.34.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -32,6 +32,15 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 Only the pages for your active modules appear in the menu, so this list is longer than what most organizations see.
 
 == Changelog ==
+
+= 0.34.0 =
+* Engage AI can now actually post. Publishing was a locked step in 0.33.0, which meant everything else could run itself right up to the last move and then stop — finished posts piling up with nobody sending them. It is now a step like the others, on the Automation page.
+* A piece goes out on the day it was planned for, to its own channel, using the same copy and the same connection the Publish button uses. Nothing is re-written or re-formatted on the way out.
+* Four things can each stop a post on their own, and the Automation page names every one against a count: no date was ever set, the day has not come yet, the piece's own quality check flagged it, or the channel is not connected and switched on for posting. "Ready but not moving" always has a stated reason now.
+* A piece whose quality check failed is never posted — if Engage AI has already told you the copy has placeholder text or a figure nothing supports, it will not then publish it anyway.
+* Nothing posts to a channel you have not connected AND switched on for posting on the Channels page. Both switches, every time. If a channel is not genuinely ready, the piece stays in the queue rather than being quietly marked as sent.
+* Fixed, and the reason this release was held: the older engagement-cycle feature reads the same per-channel setting, and its content is still placeholder text. Switching a channel on so your real content could go out would also have started posting "[DRAFT ...] placeholder content pending review" to that same account. It can no longer reach a live channel under any configuration.
+* "Approve in a daily digest" and "approve each piece" are named on the Automation page but not built yet. Choosing one is refused outright rather than accepted and ignored — being told no is much better than thinking you are approving posts that are already going out.
 
 = 0.33.0 =
 * The steps you were doing by hand can now do themselves. Checking a new draft, writing a kept idea, building the pieces a campaign already planned, and taking the first performance measurement of a published post are all things Engage AI did the same way every time and still waited for you to click. Each is now a switch — on the new Automation page, and directly under the queue it drains on the page you are already looking at.

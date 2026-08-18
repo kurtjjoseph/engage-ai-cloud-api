@@ -25,10 +25,16 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.entities import EngagementCycleRun, Organization, Publication
 from app.services.analytics_insights import compute_insights
-from app.services.channels import DISTRIBUTABLE_CHANNELS, get_adapter
+from app.services.channels import DISTRIBUTABLE_CHANNELS, get_adapter, simulated_adapter
 from app.services.cycle_measurement import measure_and_rescore
 
 ENGAGEMENT_TYPES = ("website_post", "social_post", "channel_setup")
+
+# Every piece of copy this module produces is templated placeholder text and
+# carries this marker. _apply_ai_copy is a hook that has never been wired to a
+# model, so there is currently NO path here that produces real copy - see
+# _is_placeholder, which is what stops this text reaching a live account.
+PLACEHOLDER_MARK = "[DRAFT - Engage AI engagement cycle]"
 
 # Cap on how many engagements one cycle plans/distributes - keeps a single
 # run bounded and reviewable instead of blasting every channel at once.
@@ -91,7 +97,7 @@ def _channel_gap(candidate: dict, target: int | None) -> int | None:
 def _website_post_content(org: Organization, candidate: dict) -> str:
     weak_point = candidate.get("notes") or "overall freshness and indexed reach"
     return (
-        f"[DRAFT - Engage AI engagement cycle] {org.name}: a new website post addressing "
+        f"{PLACEHOLDER_MARK} {org.name}: a new website post addressing "
         f"the current weak point on website ({weak_point}). This is templated placeholder "
         f"copy queued as a WordPress draft for human review before anything goes live - "
         f"not a live human-written post."
@@ -101,7 +107,7 @@ def _website_post_content(org: Organization, candidate: dict) -> str:
 def _social_post_content(org: Organization, channel: str, candidate: dict) -> str:
     weak_point = candidate.get("notes") or f"engagement/posting cadence on {channel}"
     return (
-        f"[DRAFT - Engage AI engagement cycle] {org.name} on {channel}: templated post copy "
+        f"{PLACEHOLDER_MARK} {org.name} on {channel}: templated post copy "
         f"targeting the current weak point ({weak_point}). Honest placeholder content, "
         f"clearly not a live human post - queued for approval before distribution."
     )
@@ -109,7 +115,7 @@ def _social_post_content(org: Organization, channel: str, candidate: dict) -> st
 
 def _channel_setup_content(org: Organization, channel: str) -> str:
     return (
-        f"[DRAFT - Engage AI engagement cycle] {org.name}: first-week setup plan for {channel}, "
+        f"{PLACEHOLDER_MARK} {org.name}: first-week setup plan for {channel}, "
         f"currently white space (no measured presence). Steps: (1) create/claim the {channel} "
         f"profile using {org.name}'s name, mission, and branding; (2) publish an introductory "
         f"post explaining who {org.name} is and what to expect; (3) post at least once this "
@@ -201,10 +207,24 @@ def _ensure_copy(engagements: list[dict], org: Organization) -> list[dict]:
     for engagement in engagements:
         if not engagement.get("content"):
             engagement["content"] = (
-                f"[DRAFT - Engage AI engagement cycle] {org.name} on {engagement['channel']}: "
+                f"{PLACEHOLDER_MARK} {org.name} on {engagement['channel']}: "
                 f"placeholder content pending review."
             )
     return _apply_ai_copy(engagements, org)
+
+
+def _is_placeholder(engagement: dict) -> bool:
+    """Whether this engagement's copy is this module's own templated filler.
+
+    Load-bearing since autonomous publishing became a supported mode
+    (services/automation.py). Both features read the SAME per-channel
+    `auto_post` flag, so an operator switching Instagram on so their finished,
+    quality-checked Studio pieces can go out would - without this - also have
+    started posting "[DRAFT - Engage AI engagement cycle] ... placeholder
+    content pending review" to that same account. Nobody would ever have chosen
+    that, and they would have found out from their audience.
+    """
+    return str(engagement.get("content") or "").lstrip().startswith(PLACEHOLDER_MARK)
 
 
 def _validate_engagements(engagements: list[dict]) -> dict[str, int]:
@@ -338,12 +358,23 @@ def run_full_cycle(
     distributed_engagements: list[dict] = []
     sim_flags: list[bool] = []
     for engagement in approved:
-        # require_auto_post: this is the unattended path, so a channel the org
-        # authenticated but never opted into autonomous posting on stays
-        # simulated here - authorizing is not the same as consenting to post.
-        adapter = get_adapter(
-            engagement["channel"], db=db, org=org, require_auto_post=True
-        )
+        if _is_placeholder(engagement):
+            # Placeholder copy is never put on a real account, whatever the org
+            # has consented to - consent was for content, not for filler.
+            # simulated_adapter() rather than get_adapter(): it ignores live
+            # connections AND runtime overrides, so this guarantee cannot be
+            # outranked by anything. The cycle still records where the work would
+            # have gone, so its own reporting is unchanged - only the sending is
+            # withheld. The moment _apply_ai_copy actually writes copy, this
+            # branch stops matching and real distribution resumes untouched.
+            adapter = simulated_adapter(engagement["channel"])
+        else:
+            # require_auto_post: this is the unattended path, so a channel the org
+            # authenticated but never opted into autonomous posting on stays
+            # simulated here - authorizing is not the same as consenting to post.
+            adapter = get_adapter(
+                engagement["channel"], db=db, org=org, require_auto_post=True
+            )
         sim_flags.append(bool(getattr(adapter, "simulated", False)))
         publication = adapter.distribute(db, org, engagement)
         publications.append(publication)

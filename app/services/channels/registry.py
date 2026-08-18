@@ -121,6 +121,20 @@ def _postiz_adapter(
     return postiz_adapter_for(db, org.id, channel)
 
 
+def simulated_adapter(channel: str) -> ChannelAdapter:
+    """The recording-only adapter for `channel`, whatever else is configured.
+
+    Deliberately does NOT consult _OVERRIDES or the org's live connections. It
+    is for a caller that has decided this particular content must not reach an
+    audience no matter what the org has authorized - currently the engagement
+    cycle, whose copy is still templated placeholder text. Going through
+    get_adapter() for that would leave the guarantee defeasible by an override,
+    and "never posts placeholder copy" is not a default worth having if
+    something else can quietly outrank it.
+    """
+    return _REGISTRY.get(channel) or SimulatedSocialAdapter(channel=channel)
+
+
 def register_adapter(channel: str, adapter: ChannelAdapter) -> None:
     """Override the adapter used for `channel` everywhere, for every
     organization (e.g. to pin a test double). Outranks live connections."""

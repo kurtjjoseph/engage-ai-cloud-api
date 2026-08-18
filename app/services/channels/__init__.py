@@ -19,6 +19,7 @@ from .registry import (
     distribute_engagement,
     get_adapter,
     register_adapter,
+    simulated_adapter,
     unregister_adapter,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "PostizClient",
     "PostizError",
     "get_adapter",
+    "simulated_adapter",
     "register_adapter",
     "unregister_adapter",
     "distribute_engagement",

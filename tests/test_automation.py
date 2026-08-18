@@ -8,7 +8,8 @@ enforce it, including one that reaches past the API and writes the config
 directly, the way a bad migration or a careless script would.
 """
 import itertools
-from datetime import datetime, timedelta
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,11 +19,16 @@ from sqlalchemy.pool import StaticPool
 
 import app.routers.studio as studio_router
 import app.services.automation as automation
+import app.services.channels.providers as providers_module
+from app.services import crypto
+from app.services.channels.base import ChannelAdapter
+from app.services.channels.registry import register_adapter, unregister_adapter
+from app.services.pipeline import READY
 from app.db.session import Base, get_db
 from app.deps import get_current_user
 from app.main import app
 from app.models.entities import (
-    AutomationRun, ContentItem, Idea, Organization, Publication, User,
+    AutomationRun, ChannelConnection, ContentItem, Idea, Organization, Publication, User,
 )
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -114,67 +120,200 @@ def _steps(payload):
     return {s["key"]: s for s in payload["steps"]}
 
 
-# ------------------------------------------------------- the publishing gate
+# ------------------------------------------------------------- publishing
+#
+# The conditions here replaced a blanket "publishing can never be automated".
+# Each one can stop a post on its own, so each is tested on its own - and the
+# most important assertion in this file is the negative one: when a channel is
+# not genuinely ready, NOTHING is recorded. get_adapter() never refuses; it
+# quietly hands back a simulated adapter, and distributing through that would
+# write a Publication for a post that never happened, marking the piece
+# published and dropping it out of the ready queue having never gone anywhere.
 
 
-def test_publishing_is_listed_as_a_step_and_marked_as_never_automatable(db, client):
+class _RealAdapter(ChannelAdapter):
+    """Stands in for a live, API-backed adapter without touching a network.
+    simulated = False is the whole point - it is what makes this a real send."""
+
+    simulated = False
+
+    def __init__(self, channel="instagram"):
+        self.channel = channel
+        self.sent = []
+
+    def distribute(self, db, org, engagement):
+        self.sent.append(engagement)
+        return self._record_publication(
+            db, org, url=f"https://{self.channel}.example/p/1", label="posted",
+            content_item_id=engagement.get("content_item_id"),
+        )
+
+
+@contextmanager
+def _live_channel(channel="instagram"):
+    """Installs a real adapter for one channel, and takes it back out again.
+
+    Unregisters rather than re-registering a simulated one on the way out -
+    ARCHITECTURE 3.12 records a latent bug in this suite where "cleanup" pinned
+    a channel to simulated for every test that ran afterwards.
+    """
+    adapter = _RealAdapter(channel)
+    register_adapter(channel, adapter)
+    try:
+        yield adapter
+    finally:
+        unregister_adapter(channel)
+
+
+def _ready(db, org, *, scheduled_on=None, passed=True, channel="instagram", title="A finished piece"):
+    """A piece that has been written, checked and rendered - the ready queue."""
+    item = ContentItem(
+        organization_id=org.id, content_type=channel, title=title,
+        input_payload={"source": "studio", "scheduled_on": scheduled_on.isoformat() if scheduled_on else None},
+        output_payload={
+            "channel": channel, "body": "Real copy that a person would actually read.",
+            "hashtags": ["vom"], "media": "text",
+            "studio": {"version": 2, "channel": channel, "surface": f"{channel}.feed_image",
+                       "surface_key": "feed_image", "step": "checked",
+                       "quality": {"score": 90, "passed": passed, "issues": [], "fixed": []},
+                       "campaign": {"scheduled_on": scheduled_on.isoformat() if scheduled_on else None}},
+        },
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def test_publishing_is_a_real_step_now_but_off_until_it_is_switched_on(db, client):
     _, org = _seed(db, client)
 
     steps = _steps(client.get(f"/organizations/{org.id}/automation").json())
 
-    # Listed rather than omitted: an absent step reads as an oversight, and the
-    # operator is owed the reason in the same list as everything else.
-    assert "channels.publish" in steps
-    assert steps["channels.publish"]["automatable"] is False
-    assert steps["channels.publish"]["gate"]
-    assert "decision" in steps["channels.publish"]["gate"].lower()
-
-
-def test_the_api_refuses_to_automate_publishing_and_says_why(db, client):
-    _, org = _seed(db, client)
-
-    resp = client.patch(f"/organizations/{org.id}/automation",
-                        json={"steps": {"channels.publish": True}})
-
-    assert resp.status_code == 422
-    assert "publish" in resp.json()["detail"].lower()
-    steps = _steps(client.get(f"/organizations/{org.id}/automation").json())
+    assert steps["channels.publish"]["automatable"] is True
+    assert steps["channels.publish"]["gate"] is None
+    # Off by default, like every step - the goal changed, the default did not.
     assert steps["channels.publish"]["enabled"] is False
 
 
-def test_a_config_that_enables_publishing_reads_back_disabled(db):
-    """The setter is not the only way a config can arrive - a migration, a
-    restored backup or a script can write the column directly."""
-    _, org = _seed(db)
-    org.automation = {"enabled": True, "steps": {"channels.publish": {"enabled": True, "max_per_run": 50}}}
+def test_a_ready_piece_posts_on_the_day_it_was_planned_for(db, client):
+    _, org = _seed(db, client)
+    piece = _ready(db, org, scheduled_on=date.today())
+    automation.set_settings(org, {"enabled": True, "steps": {"channels.publish": True}})
     db.commit()
 
-    assert automation.settings_for(org)["steps"]["channels.publish"]["enabled"] is False
+    with _live_channel("instagram") as adapter:
+        run = automation.run_now(db, org, trigger="manual")
+
+    assert run.processed == 1 and run.failed == 0
+    assert len(adapter.sent) == 1
+    # The real copy went out, not a placeholder or a title.
+    assert "Real copy" in adapter.sent[0]["content"]["body"]
+    pub = db.query(Publication).filter(Publication.organization_id == org.id).one()
+    assert pub.content_item_id == piece.id and pub.simulated is False
 
 
-def test_a_forced_config_still_cannot_publish_when_the_run_executes(db, client):
-    """The last line: past the setter, past the normalizer, at the moment of
-    acting. Nothing here goes through the API at all."""
+def test_nothing_is_recorded_when_the_channel_is_not_really_connected(db, client):
+    """The load-bearing test. No override is installed, so the registry falls
+    through to a simulated adapter - which must never be posted through."""
     _, org = _seed(db, client)
-    ready = ContentItem(
-        organization_id=org.id, content_type="instagram", title="Ready to go",
-        input_payload={}, output_payload={"studio": {"quality": {"score": 90}}},
-    )
-    db.add(ready)
-    # Bypasses set_settings entirely, exactly as a bad script would.
-    org.automation = {"enabled": True, "steps": {"channels.publish": {"enabled": True}}}
+    _ready(db, org, scheduled_on=date.today())
+    automation.set_settings(org, {"enabled": True, "steps": {"channels.publish": True}})
     db.commit()
 
     run = automation.run_now(db, org, trigger="manual")
 
-    publish = next(s for s in run.steps if s["key"] == "channels.publish")
-    assert publish["attempted"] == 0
-    assert publish["processed"] == 0
-    assert publish["skipped_reason"]
-    # The piece is reported as waiting, so the operator sees the size of the
-    # decision that is theirs - and it is still sitting there afterwards.
-    assert publish["waiting"] == 1
+    assert run.processed == 0 and run.failed == 0
+    # No phantom publication - which is what would have marked the piece
+    # published and dropped it out of the queue having never gone anywhere.
     assert db.query(Publication).filter(Publication.organization_id == org.id).count() == 0
+    assert len(automation._content_by_position(db, org, READY)) == 1
+    # And the reason is stated rather than the piece just being absent.
+    reported = _steps(client.get(f"/organizations/{org.id}/automation").json())
+    assert reported["channels.publish"]["holding"]["channel_not_ready"] == 1
+
+
+def test_authorising_a_channel_is_not_consent_to_post_on_it(db, client, monkeypatch):
+    """auto_post is the floor the whole design leans on: connecting a channel
+    must not by itself start publishing."""
+    _, org = _seed(db, client)
+    monkeypatch.setattr(providers_module.settings, "facebook_client_id", "fb-id")
+    monkeypatch.setattr(providers_module.settings, "facebook_client_secret", "fb-secret")
+    connection = ChannelConnection(
+        organization_id=org.id, channel="facebook", provider="facebook", status="connected",
+        access_token_enc=crypto.encrypt("a-token"), auto_post=False,
+        target={"page_id": "1", "page_token": "t"},
+    )
+    db.add(connection)
+    db.commit()
+
+    assert automation._live_adapter_or_none(db, org, "facebook") is None
+
+    connection.auto_post = True
+    db.commit()
+
+    assert automation._live_adapter_or_none(db, org, "facebook") is not None
+
+
+def test_a_piece_its_own_check_failed_is_not_posted(db, client):
+    _, org = _seed(db, client)
+    _ready(db, org, scheduled_on=date.today(), passed=False)
+    automation.set_settings(org, {"enabled": True, "steps": {"channels.publish": True}})
+    db.commit()
+
+    with _live_channel("instagram") as adapter:
+        run = automation.run_now(db, org, trigger="manual")
+
+    # The studio already said this copy is wrong; publishing it anyway would be
+    # the system contradicting itself.
+    assert adapter.sent == []
+    assert run.processed == 0
+
+
+def test_a_piece_is_not_posted_before_its_day(db, client):
+    _, org = _seed(db, client)
+    _ready(db, org, scheduled_on=date.today() + timedelta(days=3))
+    automation.set_settings(org, {"enabled": True, "steps": {"channels.publish": True}})
+    db.commit()
+
+    with _live_channel("instagram") as adapter:
+        run = automation.run_now(db, org, trigger="manual")
+
+    assert adapter.sent == []
+    step = next(s for s in run.steps if s["key"] == "channels.publish")
+    assert step["waiting"] == 0
+
+
+def test_a_ready_piece_nobody_dated_is_counted_rather_than_stranded(db, client):
+    """It will never post on a schedule it does not have. That has to be
+    visible, or it is just content quietly going nowhere."""
+    _, org = _seed(db, client)
+    _ready(db, org, scheduled_on=None)
+
+    steps = _steps(client.get(f"/organizations/{org.id}/automation").json())
+
+    assert steps["channels.publish"]["waiting"] == 0
+    assert steps["channels.publish"]["holding"]["no_date"] == 1
+
+
+def test_a_publishing_mode_that_is_not_built_is_refused_not_ignored(db, client):
+    """Storing "manual" and then posting anyway is the worst thing this could
+    do, so an unbuilt mode is rejected at the door."""
+    _, org = _seed(db, client)
+
+    resp = client.patch(f"/organizations/{org.id}/automation", json={"publish_mode": "manual"})
+
+    assert resp.status_code == 422
+    assert "isn't built yet" in resp.json()["detail"]
+    assert client.get(f"/organizations/{org.id}/automation").json()["publish_mode"] == "autonomous"
+
+
+def test_an_unknown_publishing_mode_is_rejected(db, client):
+    _, org = _seed(db, client)
+
+    resp = client.patch(f"/organizations/{org.id}/automation", json={"publish_mode": "whenever"})
+
+    assert resp.status_code == 422
 
 
 # ------------------------------------------------------------------ defaults

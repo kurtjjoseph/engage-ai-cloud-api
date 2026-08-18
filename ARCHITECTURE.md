@@ -271,7 +271,7 @@ organization can switch any of them on:
 | `studio.check` | Studio | runs the quality check on a draft that has never been measured |
 | `studio.render` | Studio | renders a checked piece's waiting image, carousel or video |
 | `performance.scan` | Performance | takes the first measurement of something published |
-| `channels.publish` | Channels | **gated — can never be switched on** |
+| `channels.publish` | Channels | posts a due, quality-passed piece to its own channel — see §3.14 |
 
 **Each step calls the function the button calls.** `studio.check` is
 `routers/studio.recheck`, which is the endpoint's own body lifted out of it;
@@ -282,15 +282,10 @@ different thing than the button does. Queues come from
 `pipeline.content_position` for the same reason - two definitions of "needs
 checking" is exactly the drift this codebase has already been bitten by.
 
-**Publishing is listed and refused.** It appears in the registry with the reason
-printed next to it rather than being omitted, because an absent step reads as an
-oversight and invites "why not that one too" as an open question. The refusal is
-enforced three times, independently: `settings_for()` reads a gated step back as
-disabled whatever is stored, `set_settings()` refuses to write it (422), and the
-drainer re-checks `step.gate` immediately before acting. A hand-edited row, a
-restored backup and a caller that skips the setter all fail closed - and
-`tests/test_automation.py` asserts each layer separately, including one test that
-writes the forcing config directly to the column.
+**Publishing was originally gated outright, and that was wrong** - see §3.14 for
+what replaced it and why. The `Step.gate` mechanism survives unused, because a
+step that genuinely must never run is a thing this registry should still be able
+to express.
 
 **Two levels of trust, not one.** A step's toggle means "this may be done for me
 at all"; `automation.enabled` means "and it may happen while nobody is watching".
@@ -333,6 +328,67 @@ under the queue strip on the page that owns each step - an operator looking at
 "14 waiting to be checked" is exactly the person who wants to stop checking them
 by hand, and sending them off to find a settings page is how a feature goes
 unused.
+
+### 3.14 Autonomous publishing: what replaced the blanket gate (added 2026-08-18)
+
+§3.13 shipped `channels.publish` as ungatable, reasoning that putting something
+in front of the public is a decision and decisions belong to a person. The
+reasoning was sound; the implementation was wrong for what this product is for.
+The goal is **quality content posted with minimal intervention**, and a workflow
+that automates everything up to the last step and then stops does not produce
+that - it produces a growing pile of finished posts nobody sends. The gate was
+the thing standing between the product and its own purpose.
+
+So the blanket refusal is gone, replaced by conditions that are narrower and,
+unlike a blanket rule, individually checkable. A piece posts only when ALL hold:
+
+1. the step is switched on for the org (off by default, like every step)
+2. `publish_mode` is one this module actually implements
+3. the piece is READY - written, checked, media rendered
+4. **its own quality check passed.** A piece the studio flagged for placeholder
+   text, a missing call to action, or a specific it was never given and may have
+   invented, does not go out. Not a human gate creeping back in - the system
+   declining to publish copy it has already said is wrong.
+5. something scheduled a day for it, and that day has arrived
+6. **the resolved adapter is real**
+
+Condition 6 is the load-bearing one. `get_adapter()` never refuses: a channel
+with no connection, or one the org never switched `auto_post` on for, falls
+through to a **simulated** adapter that records a `Publication` for a post that
+never happened - which would mark the piece published and drop it out of the
+ready queue having never gone anywhere. Silent loss, the one thing the queues
+exist to prevent. `_live_adapter_or_none()` therefore resolves the adapter
+*before* distributing and treats a simulated one as a Skip. Removing that single
+check makes two tests fail, which is how it should be.
+
+The real floor is not in `automation.py` at all: **`auto_post` is off per channel
+until a person turns it on.** Two independent switches - the step, and that
+channel - must both be on before anything reaches an audience.
+
+**`publish_mode` is a named mode, not a boolean**, because the modes that do not
+exist yet are already known: `digest` (hold everything, release in one click) and
+`manual` (approve each piece). Both are named and both are *refused* by
+`set_settings()` rather than stored - accepting `manual` and then posting anyway
+is the worst thing this could do. Autonomous is the proving-phase mode; the other
+two are additive when their turn comes.
+
+**A knock-on that mattered more than the feature.** The engagement cycle (§2)
+reads the *same* `auto_post` flag, and its copy is templated placeholder text -
+`_apply_ai_copy` has never been wired to a model, so there is currently no path
+in it that produces real copy. An operator switching Instagram on so their
+finished Studio pieces could go out would therefore also have started posting
+`[DRAFT - Engage AI engagement cycle] ... placeholder content pending review` to
+that same account. Nobody would have chosen that, and they would have learned
+about it from their audience. `_is_placeholder()` now routes such engagements
+through `channels.simulated_adapter()` - which ignores live connections **and**
+runtime overrides, so the guarantee cannot be outranked. The cycle still records
+where the work would have gone; only the sending is withheld. When AI copy is
+wired, the branch stops matching and real distribution resumes untouched.
+
+**Still not real:** `website` distribution constructs a draft URL and makes no
+WordPress API call (`services/channels/website.py`), and is honestly marked
+`simulated = True` - so condition 6 excludes it too. Of the six distributable
+channels, only the direct-OAuth and Postiz-relayed paths genuinely post.
 
 ## 4. Deployment scaffolding
 

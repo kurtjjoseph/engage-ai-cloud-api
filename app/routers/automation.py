@@ -30,12 +30,19 @@ class AutomationPatch(BaseModel):
     one that changed. `steps` accepts either the full object per step or a bare
     true/false for the common case:
 
-        {"enabled": true,
+        {"enabled": true, "publish_mode": "autonomous",
          "steps": {"studio.check": true, "studio.render": {"enabled": true, "max_per_run": 1}}}
+
+    A field absent from the request is left alone; a field present and invalid
+    is a 422. Nothing here is accepted-and-ignored.
     """
 
     enabled: bool | None = None
     steps: dict[str, bool | dict] | None = None
+    # "autonomous" today. "digest" and "manual" are named but not built, and are
+    # refused rather than stored - a mode that is accepted and then ignored would
+    # mean an operator who chose manual approval gets autonomous posting.
+    publish_mode: str | None = None
 
 
 def _run_out(run: AutomationRun) -> dict:

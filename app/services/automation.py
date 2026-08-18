@@ -15,22 +15,49 @@ performed - by calling the same function the endpoint calls, never a second
 implementation of it. That is the whole design constraint: automation must not
 be able to do a slightly different thing than the button does.
 
-WHAT IS DELIBERATELY NOT AUTOMATABLE
+PUBLISHING, AND WHAT ACTUALLY GUARDS IT
 
-`channels.publish` is in the registry, and it can never be switched on. It is
-listed rather than omitted because an operator looking at the automation page
-should be told that publishing is the step that stays theirs - a step that is
-simply absent reads as an oversight, and the next person to ask "why can't the
-rest be automated too" deserves the answer in the same list. Putting something
-in front of the public is a decision, and this system has one rule about
-decisions: they belong to a person.
+`channels.publish` posts for real. It was flatly ungatable in the first version
+of this module, on the reasoning that putting something in front of the public
+is a decision and decisions belong to a person. That reasoning was sound and the
+implementation was wrong for what this product is for: the goal is quality
+content posted with minimal intervention, and a workflow that automates
+everything up to the last step and then stops just accumulates finished posts
+nobody sends. So the blanket refusal is gone, replaced by conditions that are
+narrower and, unlike a blanket rule, actually checkable.
 
-That refusal is enforced in three places on purpose, because one is not enough:
-`settings_for()` reads a gated step back as disabled whatever the stored config
-says, `set_settings()` refuses to write it, and the drainer checks `step.gate`
-again immediately before acting. A hand-edited database row, a stale config
-written before a step was gated, and a future caller that skips the setter all
-fail closed.
+A piece is posted only when ALL of these hold, each independently able to stop
+it, and each reported by name when it does:
+
+  * the step is switched on for the org (off by default, like every step)
+  * `publish_mode` is one this module actually implements
+  * the piece is READY - written, checked, and its media rendered
+  * its own quality check PASSED. A piece the studio flagged for placeholder
+    text, a missing call to action, or a specific it was never given and may
+    have invented, does not go out. This is not a human approval gate creeping
+    back in; it is the system declining to publish copy it has already said is
+    wrong.
+  * something scheduled a day for it, and that day has arrived
+  * the resolved adapter is REAL - see _live_adapter_or_none, which is the load
+    -bearing check in this whole module
+
+That last one deserves its own sentence, because get_adapter() never refuses. A
+channel with no connection, or one the org never switched `auto_post` on for,
+falls through to a SIMULATED adapter that happily records a Publication for a
+post that never happened - which would mark the piece published and drop it out
+of the ready queue having never gone anywhere. Silent loss, which is the one
+thing the queues exist to prevent. So the adapter is resolved BEFORE anything is
+distributed, and a simulated one is a Skip, not a send.
+
+The real floor under all of this is not in this file: `auto_post` is off per
+channel until a person turns it on, and that is what the whole design leans on.
+Two independent switches - this step, and that channel - must both be on before
+anything reaches an audience.
+
+`publish_mode` is a named mode rather than a boolean because the modes that do
+not exist yet are already known: a daily digest released with one click, and
+per-piece manual approval. An unsupported mode is refused out loud rather than
+quietly falling back to posting.
 
 TWO LEVELS OF TRUST
 
@@ -45,8 +72,9 @@ drainer, so what the preview promised is what happens.
 
 WHAT A RUN MAY DO
 
-Every step here only ever moves an item FORWARD into a draft, a check, a render
-or a measurement. Nothing deletes, nothing sends, nothing spends. Each step is
+Every step here moves an item FORWARD - into a draft, a check, a render, a
+measurement, or (under the conditions above) out to its channel. Nothing here
+deletes anything, and nothing spends money. Each step is
 capped per run (`max_per_run`), so switching everything on cannot turn one sweep
 into an unbounded spend of model calls, and one item's failure is recorded
 against that item and never ends the run.
@@ -56,7 +84,7 @@ operator was not there. "What did it do last night" has to be answerable from
 storage, not reconstructed from side effects.
 """
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from sqlalchemy.orm import Session
@@ -92,6 +120,19 @@ MAX_PER_RUN_CEILING = 50
 # up on at 15 minutes. Half an hour of complete silence is dead, while a long
 # but healthy sweep is left alone however long it takes.
 STALE_AFTER_SECONDS = 30 * 60
+
+# How a finished piece gets from "ready" to "live".
+#
+# A named mode rather than a boolean, because the two modes that do not exist
+# yet are already known: a daily digest an operator releases with one click, and
+# per-piece manual approval. Naming them now means adding them is implementing a
+# branch, not unpicking a boolean that assumed there would only ever be two
+# answers. An unsupported mode is refused out loud (see set_settings) rather
+# than quietly behaving like the default - "I set it to manual and it posted
+# anyway" is the worst possible failure here.
+PUBLISH_MODES = ("autonomous", "digest", "manual")
+SUPPORTED_PUBLISH_MODES = ("autonomous",)
+DEFAULT_PUBLISH_MODE = "autonomous"
 
 
 class Skip(Exception):
@@ -132,6 +173,10 @@ class Step:
     # per organization by blocked_reason(). Not a gate - a missing requirement
     # is a setup problem, not a decision reserved for a human.
     requires: tuple[str, ...] = field(default_factory=tuple)
+    # Optional: counts of work this step is deliberately NOT taking, each keyed
+    # by the reason. A step whose queue excludes things owes the operator an
+    # account of what it left out and why.
+    holding: Callable[[Session, Organization], dict] | None = None
 
 
 # ----------------------------------------------------------------- the steps
@@ -399,14 +444,137 @@ def _scan_publication(db: Session, org: Organization, pub: Publication) -> str:
     return f"measured, scored {score}" if score is not None else "measured"
 
 
+def _scheduled_on(item: ContentItem) -> date | None:
+    """The day this piece was planned for, or None if nothing ever planned it.
+
+    A campaign stamps every entry with a date and carries it onto the piece it
+    builds (routers/campaigns._build_one); a one-off Studio piece has no date at
+    all, because nobody said when it should go out.
+    """
+    state = _studio_state_of(item)
+    raw = (state.get("campaign") or {}).get("scheduled_on") or (item.input_payload or {}).get("scheduled_on")
+    if isinstance(raw, date):
+        return raw
+    try:
+        return date.fromisoformat(str(raw).strip()[:10])
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _studio_state_of(item: ContentItem) -> dict:
+    state = (item.output_payload or {}).get("studio")
+    return state if isinstance(state, dict) else {}
+
+
+def _quality_passed(item: ContentItem) -> bool:
+    """Whether the piece's own check cleared it.
+
+    False means the studio flagged something it can name - placeholder text, a
+    missing call to action, or a specific this piece was never given and may
+    have invented. Not posting those is not a human approval gate sneaking back
+    in; it is the system declining to publish copy it has already said is wrong.
+    """
+    return bool((_studio_state_of(item).get("quality") or {}).get("passed"))
+
+
+def _publish_channel(item: ContentItem) -> str:
+    output = item.output_payload or {}
+    return str(output.get("channel") or _studio_state_of(item).get("channel") or "")
+
+
+def _live_adapter_or_none(db: Session, org: Organization, channel: str):
+    """The adapter that would really post this, or None.
+
+    The crucial bit of this whole step. get_adapter() never refuses - a channel
+    with no connection, or one the org never opted into autonomous posting on,
+    falls through to a SIMULATED adapter that records a Publication for a post
+    that never happened. Distributing through that would mark the piece
+    published and drop it out of the ready queue having never gone anywhere:
+    silent loss, which is the one thing the queues exist to prevent. So the
+    adapter is resolved first and only used if it is genuinely real.
+    """
+    from app.services.channels import get_adapter
+
+    try:
+        adapter = get_adapter(channel, db=db, org=org, require_auto_post=True)
+    except ValueError:
+        return None
+    return None if getattr(adapter, "simulated", False) else adapter
+
+
+def _publish_candidates(db: Session, org: Organization) -> list[ContentItem]:
+    return _content_by_position(db, org, READY)
+
+
 def _pending_publish(db: Session, org: Organization) -> list[Pending]:
-    """Everything finished and waiting to go out. Reported so the operator can
-    see the size of the decision that is theirs - never acted on."""
-    return [Pending(f"content:{i.id}", i.title, i) for i in _content_by_position(db, org, READY)]
+    """Finished pieces whose planned day has arrived and which can really go out.
+
+    Everything excluded here is counted and named by _publish_holding(), so a
+    piece that is ready but not moving always has a stated reason rather than
+    just being absent from a queue.
+    """
+    today = date.today()
+    out = []
+    for item in _publish_candidates(db, org):
+        when = _scheduled_on(item)
+        if when is None or when > today or not _quality_passed(item):
+            continue
+        if _live_adapter_or_none(db, org, _publish_channel(item)) is None:
+            continue
+        out.append(Pending(f"content:{item.id}", item.title, item))
+    return out
 
 
-def _never(db: Session, org: Organization, item: Any) -> str:
-    raise RuntimeError("This step is gated and must never be executed.")
+def _publish_holding(db: Session, org: Organization) -> dict:
+    """Why the rest of the ready pile is not going out.
+
+    Exists because "I can't see where the content is actually being posted" is
+    the question this whole step invites, and a bare waiting count answers it
+    badly. Each number here names one specific, fixable reason.
+    """
+    today = date.today()
+    holding = {"no_date": 0, "not_due_yet": 0, "quality_failed": 0, "channel_not_ready": 0}
+    for item in _publish_candidates(db, org):
+        when = _scheduled_on(item)
+        if when is None:
+            holding["no_date"] += 1
+        elif when > today:
+            holding["not_due_yet"] += 1
+        elif not _quality_passed(item):
+            holding["quality_failed"] += 1
+        elif _live_adapter_or_none(db, org, _publish_channel(item)) is None:
+            holding["channel_not_ready"] += 1
+    return holding
+
+
+def _publish_item(db: Session, org: Organization, item: ContentItem) -> str:
+    """Sends one finished piece to its own channel, for real.
+
+    Uses the same converter and the same adapter the operator's own publish
+    button uses (routers/channel_connections._engagement_from_content), so an
+    auto-posted piece goes out byte-for-byte as a hand-posted one would.
+    """
+    from app.routers.channel_connections import _engagement_from_content
+
+    channel = _publish_channel(item)
+    if not channel:
+        raise Skip("this piece does not name a channel to post to")
+    if not _quality_passed(item):
+        raise Skip("its quality check has not cleared - review it first")
+
+    when = _scheduled_on(item)
+    if when is None:
+        raise Skip("nothing scheduled a day for this piece")
+    if when > date.today():
+        raise Skip(f"not due until {when.isoformat()}")
+
+    adapter = _live_adapter_or_none(db, org, channel)
+    if adapter is None:
+        raise Skip(f"{channel} is not connected and switched on for autonomous posting")
+
+    engagement = _engagement_from_content(db, item, channel, None)
+    publication = adapter.distribute(db, org, engagement)
+    return f"posted to {channel}: {publication.url}"
 
 
 STEPS: tuple[Step, ...] = (
@@ -462,11 +630,16 @@ STEPS: tuple[Step, ...] = (
         key="channels.publish",
         stage="channels",
         label="Publish what is ready",
-        description="Sends finished pieces out to their channels.",
-        default_max_per_run=0,
+        description=(
+            "Posts a finished piece to its own channel on the day it was planned for. Only ever "
+            "through a channel you have connected AND switched on for autonomous posting, and only "
+            "a piece whose quality check has cleared."
+        ),
+        default_max_per_run=5,
         pending=_pending_publish,
-        run_one=_never,
-        gate="Publishing is a decision, not a step. Nothing goes in front of your audience without a person choosing to send it.",
+        run_one=_publish_item,
+        requires=("publishing",),
+        holding=_publish_holding,
     ),
 )
 
@@ -503,7 +676,11 @@ def settings_for(org: Organization) -> dict:
             "max_per_run": min(cap, MAX_PER_RUN_CEILING),
         }
 
-    return {"enabled": bool(raw.get("enabled")), "steps": steps}
+    mode = raw.get("publish_mode")
+    if mode not in PUBLISH_MODES:
+        mode = DEFAULT_PUBLISH_MODE
+
+    return {"enabled": bool(raw.get("enabled")), "publish_mode": mode, "steps": steps}
 
 
 def blocked_reason(step: Step, org: Organization) -> str | None:
@@ -518,6 +695,10 @@ def blocked_reason(step: Step, org: Organization) -> str | None:
         return "No writing key is configured on the API, so nothing can be written."
     if "analytics" in step.requires and "analytics" not in (org.enabled_modules or []):
         return "The analytics module is switched off for this organization."
+    if "publishing" in step.requires:
+        mode = settings_for(org)["publish_mode"]
+        if mode not in SUPPORTED_PUBLISH_MODES:
+            return f"Publishing is set to '{mode}', which is not built yet - nothing will be posted."
     return None
 
 
@@ -531,6 +712,20 @@ def set_settings(org: Organization, patch: dict) -> dict:
     current = settings_for(org)
     if "enabled" in patch:
         current["enabled"] = bool(patch["enabled"])
+
+    if "publish_mode" in patch:
+        mode = patch["publish_mode"]
+        if mode not in PUBLISH_MODES:
+            raise ValueError(f"publish_mode must be one of {', '.join(PUBLISH_MODES)}.")
+        if mode not in SUPPORTED_PUBLISH_MODES:
+            # Refused rather than stored-and-ignored. Accepting "manual" and then
+            # posting anyway is the single worst thing this could do.
+            raise ValueError(
+                f"'{mode}' publishing isn't built yet. Only "
+                f"{' and '.join(SUPPORTED_PUBLISH_MODES)} works today - "
+                "switch the publishing step off if you want to release posts by hand."
+            )
+        current["publish_mode"] = mode
 
     for key, value in (patch.get("steps") or {}).items():
         step = STEPS_BY_KEY.get(key)
@@ -577,6 +772,7 @@ def describe(db: Session, org: Organization) -> dict:
             "max_per_run": entry["max_per_run"],
             "waiting": len(step.pending(db, org)),
             "blocked_by": blocked_reason(step, org) if step.gate is None else None,
+            "holding": step.holding(db, org) if step.holding else None,
         })
 
     last = (
@@ -589,6 +785,9 @@ def describe(db: Session, org: Organization) -> dict:
         # "may these steps run while nobody is watching". A step switched on
         # with this off still runs when the operator presses Run now.
         "enabled": config["enabled"],
+        "publish_mode": config["publish_mode"],
+        "publish_modes": list(PUBLISH_MODES),
+        "publish_modes_supported": list(SUPPORTED_PUBLISH_MODES),
         "max_per_run_ceiling": MAX_PER_RUN_CEILING,
         "interval_hours": settings.automation_interval_hours,
         "steps": steps,
