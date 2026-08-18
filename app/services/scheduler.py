@@ -4,6 +4,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.config import settings
 from app.db.session import SessionLocal
 from app.models.entities import AnalyticsSnapshot, Organization
+from app.services.automation import run_now as run_automation_now, settings_for as automation_settings
 from app.services.cycle_engine import run_cycle_for_niche
 from app.services.cycle_measurement import is_cycle_enabled
 from app.services.engagement_cycle import run_full_cycle
@@ -44,6 +45,46 @@ def run_all_engagement_cycles() -> None:
                 print(f"[scheduler] engagement cycle failed for org {org.id}: {exc}", flush=True)
     finally:
         db.close()
+
+
+def run_all_automation() -> None:
+    """Drains the workflow queues for every organization that has switched
+    automation on (services/automation.py).
+
+    Orgs with it off are skipped silently rather than given a run row: a
+    scheduled sweep across a hundred manual orgs would otherwise write a hundred
+    "did nothing" rows an hour, and bury the runs that matter. A MANUAL run is
+    recorded even when everything is off, because someone asked and deserves an
+    answer - that asymmetry is intentional.
+
+    Each org is isolated so one org's failure never stops the batch, the same
+    contract as the engagement-cycle job above.
+    """
+    db = SessionLocal()
+    try:
+        org_ids = [o.id for o in db.query(Organization).all() if automation_settings(o)["enabled"]]
+    finally:
+        db.close()
+
+    for org_id in org_ids:
+        db = SessionLocal()
+        try:
+            org = db.query(Organization).filter(Organization.id == org_id).first()
+            if org is None:
+                continue
+            run = run_automation_now(db, org, trigger="scheduled")
+            if run.status == "running":
+                # run_now returned a drainer that was already in flight - most
+                # likely one the operator started by hand a moment ago. Left
+                # alone rather than raced; the next sweep picks this org up.
+                print(f"[scheduler] automation skipped org {org_id}: run {run.id} is still going", flush=True)
+            else:
+                print(f"[scheduler] automation run {run.id} for org {org_id}: {run.status} "
+                      f"({run.processed} processed, {run.failed} failed)", flush=True)
+        except Exception as exc:  # noqa: BLE001 - one org's failure must not sink the whole scheduled batch
+            print(f"[scheduler] automation failed for org {org_id}: {exc}", flush=True)
+        finally:
+            db.close()
 
 
 def run_all_scheduled_analytics_scans() -> None:
@@ -101,6 +142,13 @@ def run_all_scheduled_analytics_scans() -> None:
 def start_scheduler(interval_hours: int) -> None:
     scheduler.add_job(run_all_active_agent_modules, "interval", hours=interval_hours, id="agent_cycle", replace_existing=True)
     scheduler.add_job(run_all_engagement_cycles, "interval", hours=interval_hours, id="engagement_cycle", replace_existing=True)
+    scheduler.add_job(
+        run_all_automation,
+        "interval",
+        hours=settings.automation_interval_hours,
+        id="automation",
+        replace_existing=True,
+    )
     scheduler.add_job(
         run_all_scheduled_analytics_scans,
         "interval",

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db.migrate import sync_missing_columns
 from app.db.session import Base, engine
-from app.routers import agents, analytics, assistant, auth, calendar, campaigns, channel_connections, chatbot, content, dashboard, engagement_cycle, ideas, onboarding, organizations, pipeline, plugin_updates, postiz, publications, studio
+from app.routers import agents, analytics, assistant, auth, automation, calendar, campaigns, channel_connections, chatbot, content, dashboard, engagement_cycle, ideas, onboarding, organizations, pipeline, plugin_updates, postiz, publications, studio
 from app.services.scheduler import start_scheduler
 
 Base.metadata.create_all(bind=engine)
@@ -37,6 +37,7 @@ app.include_router(dashboard.router)
 app.include_router(ideas.router)
 app.include_router(calendar.router)
 app.include_router(pipeline.router)
+app.include_router(automation.router)
 app.include_router(chatbot.router)
 
 
@@ -46,8 +47,28 @@ def on_startup():
     # with their snapshots stuck "pending" - mark those failed so the
     # plugin shows "run a new scan" instead of "in progress" forever.
     analytics.reap_stale_pending_snapshots()
+    # Same failure, same fix, for the automation drainer: a sweep in flight when
+    # a deploy lands leaves its run row "running" with nobody behind it, and
+    # that row would otherwise block every later run for that organization.
+    reap_orphaned_automation_runs()
     if settings.enable_scheduler:
         start_scheduler(settings.cycle_interval_hours)
+
+
+def reap_orphaned_automation_runs() -> None:
+    """Opens its own session - this runs before any request exists."""
+    from app.db.session import SessionLocal
+    from app.services.automation import reap_stale_runs
+
+    db = SessionLocal()
+    try:
+        reaped = reap_stale_runs(db)
+        if reaped:
+            print(f"[automation] reaped {reaped} orphaned run(s) left over from a previous process", flush=True)
+    except Exception as exc:  # noqa: BLE001 - a failed reap must never stop the app booting
+        print(f"[automation] could not reap orphaned runs: {exc}", flush=True)
+    finally:
+        db.close()
 
 
 @app.get("/")

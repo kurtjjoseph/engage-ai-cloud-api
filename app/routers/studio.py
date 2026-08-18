@@ -417,20 +417,14 @@ def studio_draft(
     return item
 
 
-@router.post("/{content_id}/check")
-def studio_check(
-    content_id: int,
-    organization_id: int,
-    revise: bool = Query(False, description="Have the AI rewrite against the issues found"),
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Pass 3. Re-measures the draft against its layout and repairs what can be
-    repaired mechanically. With revise=true, anything left over (missing call to
-    action, placeholder text, too few slides) is sent back for a rewrite and
-    then re-checked, so the report always describes what is actually stored."""
-    org = get_owned_org(organization_id, db, user)
-    item = _get_item(content_id, org, db)
+def recheck(db: Session, org, item: ContentItem, revise: bool = False) -> dict:
+    """Pass 3, without a request around it.
+
+    Lifted out of the endpoint below so the queue-drainer
+    (services/automation.py) runs the same check an operator would, rather than
+    a second implementation of it that could quietly drift into measuring
+    something else. The endpoint is now this function plus authorization.
+    """
     state = _studio_state(item)
     goal = state.get("goal", DEFAULT_GOAL)
     output = item.output_payload or {}
@@ -468,6 +462,23 @@ def studio_check(
     _write(item, draft, state)
     db.commit()
     return {"content_id": item.id, "quality": report}
+
+
+@router.post("/{content_id}/check")
+def studio_check(
+    content_id: int,
+    organization_id: int,
+    revise: bool = Query(False, description="Have the AI rewrite against the issues found"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Pass 3. Re-measures the draft against its layout and repairs what can be
+    repaired mechanically. With revise=true, anything left over (missing call to
+    action, placeholder text, too few slides) is sent back for a rewrite and
+    then re-checked, so the report always describes what is actually stored."""
+    org = get_owned_org(organization_id, db, user)
+    item = _get_item(content_id, org, db)
+    return recheck(db, org, item, revise)
 
 
 @router.post("/{content_id}/edit", response_model=ContentOut)
@@ -688,6 +699,40 @@ def _execute_render(content_id: int, organization_id: int) -> None:
         db.close()
 
 
+def render_target(item: ContentItem) -> str:
+    """The kind of file this piece renders to - "image", "video" or "document" -
+    or an HTTPException(400) saying why it has nothing to render.
+
+    One definition of "can this be rendered at all", shared by the endpoint
+    below and by the queue-drainer (services/automation.py). A piece with no
+    slides, no image prompt, or on a surface where the copy IS the whole post
+    must be refused the same way whoever asked - otherwise the drainer retries
+    a text post's impossible render on every sweep, forever.
+    """
+    state = _studio_state(item)
+    output = item.output_payload or {}
+
+    surface = _surface_of(state)
+    if surface is not None:
+        if surface.render == "none":
+            raise HTTPException(
+                status_code=400,
+                detail=f"A {surface.label.lower()} has no file to render - the copy is the whole post.",
+            )
+        if surface.render in ("slideshow", "carousel", "document") and not (output.get("slides") or []):
+            raise HTTPException(status_code=400, detail="There are no slides to render yet.")
+        if surface.render in ("post_image", "text_image") and not str(output.get("image_prompt") or "").strip():
+            raise HTTPException(status_code=400, detail="There is no image prompt to render.")
+        return {"slideshow": "video", "document": "document"}.get(surface.render, "image")
+
+    layout = layout_for(state["channel"], state["format"])
+    if layout.format == "video_slideshow" and not (output.get("slides") or []):
+        raise HTTPException(status_code=400, detail="There are no slides to render yet.")
+    if layout.format != "video_slideshow" and not str(output.get("image_prompt") or "").strip():
+        raise HTTPException(status_code=400, detail="There is no image prompt to render.")
+    return FORMATS[layout.format]["media"]
+
+
 @router.post("/{content_id}/render")
 def studio_render(
     content_id: int,
@@ -709,28 +754,7 @@ def studio_render(
     act on."""
     org = get_owned_org(organization_id, db, user)
     item = _get_item(content_id, org, db)
-    state = _studio_state(item)
-    output = item.output_payload or {}
-
-    surface = _surface_of(state)
-    if surface is not None:
-        if surface.render == "none":
-            raise HTTPException(
-                status_code=400,
-                detail=f"A {surface.label.lower()} has no file to render - the copy is the whole post.",
-            )
-        if surface.render in ("slideshow", "carousel", "document") and not (output.get("slides") or []):
-            raise HTTPException(status_code=400, detail="There are no slides to render yet.")
-        if surface.render in ("post_image", "text_image") and not str(output.get("image_prompt") or "").strip():
-            raise HTTPException(status_code=400, detail="There is no image prompt to render.")
-        media_kind = {"slideshow": "video", "document": "document"}.get(surface.render, "image")
-    else:
-        layout = layout_for(state["channel"], state["format"])
-        if layout.format == "video_slideshow" and not (output.get("slides") or []):
-            raise HTTPException(status_code=400, detail="There are no slides to render yet.")
-        if layout.format != "video_slideshow" and not str(output.get("image_prompt") or "").strip():
-            raise HTTPException(status_code=400, detail="There is no image prompt to render.")
-        media_kind = FORMATS[layout.format]["media"]
+    media_kind = render_target(item)
 
     current = _render_state(item)
     if current.get("status") == "running":

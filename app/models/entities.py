@@ -83,6 +83,20 @@ class Organization(Base):
     # web_fetch's SSRF gate refuses) otherwise scores 0 despite being live.
     site_facts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # Which workflow steps this org lets run without an operator pressing the
+    # button, and how many items each may take per run (services/automation.py):
+    #
+    #   {"enabled": true,
+    #    "steps": {"studio.check": {"enabled": true, "max_per_run": 20}, ...}}
+    #
+    # NULL means fully manual, which is what every org that existed before this
+    # field means and what a new org gets - automation is opt-in per step, never
+    # inherited and never on by default. The stored value is advisory only: it is
+    # normalized through services/automation.settings_for() on every read, and a
+    # gated step (anything that publishes, sends or spends) reads back disabled
+    # no matter what this column says.
+    automation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     owner = relationship("User", back_populates="organizations")
     content_items = relationship("ContentItem", back_populates="organization")
     campaigns = relationship("Campaign", back_populates="organization")
@@ -625,3 +639,52 @@ class Idea(Base):
         ForeignKey("content_items.id"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class AutomationRun(Base):
+    """One pass of the queue-drainer (services/automation.py): what the workflow
+    did on its own, when, and to which items.
+
+    Kept for the same reason EngagementCycleRun is kept, only more so. When an
+    operator presses a button they know what they asked for; when the workflow
+    advances items by itself, this row is the only place the answer lives. So it
+    records the item-level detail rather than a count - "3 processed" is not an
+    answer to "what did it write last night", and a run that drafted the wrong
+    idea has to be traceable back to the idea, not just to the hour.
+
+    `steps` is a list, one entry per step considered - including the steps that
+    were off and the ones that had nothing waiting. A step that did nothing is a
+    fact worth storing: "the renders didn't happen" and "the renders were never
+    attempted" are different problems and the operator can only tell them apart
+    if the run says which one it was. Shape:
+
+        {"key": "studio.check", "label": ..., "enabled": bool,
+         "waiting": int, "attempted": int, "processed": int, "failed": int,
+         "skipped_reason": str|None,
+         "items": [{"ref": "content:12", "title": ..., "ok": bool,
+                    "detail": str|None}]}
+    """
+
+    __tablename__ = "automation_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    # "manual" (an operator pressed Run now) or "scheduled" (the interval job).
+    trigger: Mapped[str] = mapped_column(String(20), default="manual")
+    # "running" | "done" | "failed" | "dry_run" | "nothing_to_do" | "off"
+    # "off" is a completed run that did nothing because automation is switched
+    # off for the org - recorded rather than refused, so a scheduled sweep that
+    # finds everything off still leaves evidence that it ran.
+    status: Mapped[str] = mapped_column(String(20), default="running", index=True)
+    steps: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    processed: Mapped[int] = mapped_column(Integer, default=0)
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    # Touched after every single item, so "is this run still alive" is answered
+    # by whether it is still making PROGRESS rather than by how long it has been
+    # going. A healthy sweep can legitimately run for a long time - a render is
+    # minutes, and the caps allow several - but it is never quiet for long. Total
+    # duration would either kill honest long runs or never catch a dead one.
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

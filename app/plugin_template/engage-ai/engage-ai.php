@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Engage AI
  * Description: Generates and auto-publishes church engagement content (events, weekly announcements, sermon engagement), autonomous check-in agents for the 8 Claude AI side-hustle modules, and web-search-based analytics, via the Engage AI Cloud API.
- * Version: 0.32.0
+ * Version: 0.33.0
  * Author: Vision Outreach Media
  * Text Domain: engage-ai
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ENGAGEAI_VERSION', '0.32.0');
+define('ENGAGEAI_VERSION', '0.33.0');
 define('ENGAGEAI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ENGAGEAI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -26,6 +26,7 @@ require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-dashboard.php'
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-assistant.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-content.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-ideas.php';
+require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-automation.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-calendar.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-studio.php';
 require_once ENGAGEAI_PLUGIN_DIR . 'includes/class-engageai-admin-campaigns.php';
@@ -98,6 +99,7 @@ final class EngageAI_Plugin
         EngageAI_Admin_Assistant::instance()->register_hooks();
         EngageAI_Admin_Content::instance()->register_hooks();
         EngageAI_Admin_Ideas::instance()->register_hooks();
+        EngageAI_Admin_Automation::instance()->register_hooks();
         EngageAI_Admin_Calendar::instance()->register_hooks();
         EngageAI_Admin_Studio::instance()->register_hooks();
         EngageAI_Admin_Campaigns::instance()->register_hooks();
@@ -244,6 +246,18 @@ final class EngageAI_Plugin
             'manage_options',
             'engageai-channels',
             [EngageAI_Admin_Channels::instance(), 'render_page']
+        );
+
+        // Not gated on the engagement module: the steps it lists belong to
+        // whichever modules are on, and it reports that honestly rather than
+        // disappearing and leaving the per-page toggles pointing at nothing.
+        add_submenu_page(
+            'engageai-dashboard',
+            __('Automation', 'engage-ai'),
+            __('Automation', 'engage-ai'),
+            'manage_options',
+            'engageai-automation',
+            [EngageAI_Admin_Automation::instance(), 'render_page']
         );
 
         // The setup wizard is the same job as Channels - it walks you to a token,

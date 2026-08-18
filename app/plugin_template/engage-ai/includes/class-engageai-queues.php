@@ -128,7 +128,81 @@ final class EngageAI_Queues
             ?>
         </div>
         <?php
+        self::render_automation($stage, $client);
         self::render_reconciliation($board);
+    }
+
+    /**
+     * The toggle for this stage's own steps, directly under its queues.
+     *
+     * Here rather than only on the Automation page because this is where the
+     * thought occurs: an operator looking at "14 waiting to be checked" is
+     * exactly the person who wants to stop checking them by hand, and making
+     * them go and find a settings page to say so is how a feature goes unused.
+     *
+     * Silent when the state can't be read, and silent for a stage with no steps
+     * - a strip that works without this should still draw.
+     */
+    private static function render_automation(string $stage, EngageAI_Api_Client $client): void
+    {
+        $state = EngageAI_Admin_Automation::state($client);
+        if ($state === null) {
+            return;
+        }
+        $steps = EngageAI_Admin_Automation::steps_for_stage($state, $stage);
+        if ($steps === []) {
+            return;
+        }
+
+        $back = sanitize_key($_GET['page'] ?? 'engageai-dashboard');
+        ?>
+        <div style="margin:-.75rem 0 1.5rem;display:flex;gap:1.2rem;flex-wrap:wrap;align-items:center;">
+            <?php foreach ($steps as $step): ?>
+                <?php
+                $key = (string) ($step['key'] ?? '');
+                $on = !empty($step['enabled']);
+                $automatable = !empty($step['automatable']);
+                $blocked = (string) ($step['blocked_by'] ?? '');
+                ?>
+                <?php if (!$automatable): ?>
+                    <span class="description" title="<?php echo esc_attr((string) ($step['gate'] ?? '')); ?>">
+                        <span class="dashicons dashicons-lock" style="font-size:1rem;width:1rem;height:1rem;vertical-align:text-bottom;"></span>
+                        <?php echo esc_html(sprintf(
+                            /* translators: %s: the name of the step, e.g. "Publish what is ready" */
+                            __('%s stays yours', 'engage-ai'),
+                            (string) ($step['label'] ?? '')
+                        )); ?>
+                    </span>
+                <?php else: ?>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
+                        <input type="hidden" name="action" value="engageai_automation_toggle" />
+                        <input type="hidden" name="step_key" value="<?php echo esc_attr($key); ?>" />
+                        <input type="hidden" name="enable" value="<?php echo $on ? '0' : '1'; ?>" />
+                        <input type="hidden" name="back" value="<?php echo esc_attr($back); ?>" />
+                        <?php wp_nonce_field('engageai_automation_toggle'); ?>
+                        <button type="submit" class="button-link" style="text-decoration:none;">
+                            <span class="dashicons <?php echo $on ? 'dashicons-yes-alt' : 'dashicons-marker'; ?>"
+                                  style="font-size:1.1rem;width:1.1rem;height:1.1rem;vertical-align:text-bottom;color:<?php echo $on ? '#0f7b47' : '#8c8f94'; ?>;"></span>
+                            <?php echo esc_html(sprintf(
+                                $on
+                                    /* translators: %s: the name of the step */
+                                    ? __('%s: running itself — switch off', 'engage-ai')
+                                    /* translators: %s: the name of the step */
+                                    : __('%s: doing this by hand — let Engage AI do it', 'engage-ai'),
+                                (string) ($step['label'] ?? '')
+                            )); ?>
+                        </button>
+                    </form>
+                    <?php if ($on && $blocked !== ''): ?>
+                        <span class="description" style="color:#8a6d00;"><?php echo esc_html($blocked); ?></span>
+                    <?php endif; ?>
+                <?php endif; ?>
+            <?php endforeach; ?>
+            <a href="<?php echo esc_url(admin_url('admin.php?page=engageai-automation')); ?>" class="description">
+                <?php esc_html_e('All automation', 'engage-ai'); ?> &rarr;
+            </a>
+        </div>
+        <?php
     }
 
     private static function card(string $heading, int $count, string $label, array $items, string $colour, string $link = '', string $link_label = ''): void

@@ -240,6 +240,46 @@ class EngageAI_Api_Client
         return $this->request('GET', '/organizations/' . $org_id . '/pipeline');
     }
 
+    // --- automation -------------------------------------------------------
+
+    /**
+     * Every workflow step, whether it may run itself, whether this org has it
+     * switched on, and how many items are waiting on it.
+     * @return array|WP_Error {enabled, interval_hours, steps[], last_run}
+     */
+    public function get_automation(int $org_id)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/automation');
+    }
+
+    /**
+     * Switches steps on or off. Partial - send only what changed. The API
+     * refuses (422) any attempt to automate a gated step, which is how
+     * publishing stays a human decision no matter what this plugin sends.
+     * @param array $patch {enabled?: bool, steps?: {key: bool|{enabled,max_per_run}}}
+     */
+    public function update_automation(int $org_id, array $patch)
+    {
+        return $this->request('PATCH', '/organizations/' . $org_id . '/automation', $patch);
+    }
+
+    /**
+     * Drains every switched-on step now. Returns immediately with a run in
+     * "running" - the work happens on the API side, past any timeout we could
+     * usefully wait for.
+     * @return array|WP_Error the run row
+     */
+    public function run_automation(int $org_id)
+    {
+        return $this->request('POST', '/organizations/' . $org_id . '/automation/run');
+    }
+
+    /** @return array|WP_Error the most recent runs, newest first */
+    public function get_automation_runs(int $org_id, int $limit = 10)
+    {
+        return $this->request('GET', '/organizations/' . $org_id . '/automation/runs?limit=' . $limit);
+    }
+
     // --- the calendar -----------------------------------------------------
 
     /**

@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     cycle_measure_mode: str = "simulate"
     cycle_module_key: str = "engagement_cycle"
 
+    # How often the queue-drainer sweeps every organization that has automation
+    # switched on (services/automation.py, services/scheduler.py). Only the
+    # steps an org has explicitly enabled run, and each is capped per sweep, so
+    # this is a cadence rather than a throttle. Sharing enable_scheduler with
+    # the other jobs is deliberate: one switch turns off everything that acts
+    # without a request behind it.
+    automation_interval_hours: int = 6
+
     # Analytics reliability + cadence (services/analytics_reconcile.py,
     # services/scheduler.py). analytics_anomaly_delta: how far a channel score
     # may move between scans before the snapshot is flagged needs_review for a

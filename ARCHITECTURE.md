@@ -14,6 +14,7 @@ An AI Engagement Director for churches and mission-driven organizations. Not jus
   - **The Campaign Creator** (see §3.11) — a whole run of content planned as one arc and built piece by piece through the studio's own passes (`services/campaign.py`): `POST /campaigns/plan` → `POST /campaigns` → `POST /campaigns/{id}/build`
   - **The original generators** — three one-shot church generators, each calling OpenAI (`gpt-4.1-mini`) with the org's memory + task-specific input, returning structured JSON (`services/ai.py`). Untouched and still routed, because installed plugins call them: `POST /campaigns/event`, `POST /campaigns/announcements`, `POST /campaigns/sermon`
 - **Content library** — every generated item is saved and retrievable per org (`routers/content.py`)
+- **Pipeline & automation** — every stage's in/out queues, derived from the work itself (`services/pipeline.py`), plus per-step automation of the transitions that were never decisions (`services/automation.py`, `routers/automation.py`, see §3.13). Publishing is permanently gated.
 - **Deployment scaffolding** — `Dockerfile`, `docker-compose.yml` (API + Postgres together), `render.yaml` (unused now, see §4)
 
 ## 3. Product decisions (locked in 2026-07)
@@ -250,6 +251,88 @@ remaining verification step. Fixing this also uncovered a real latent bug in
 `facebook` instead of unregistering the override, which pinned that channel to
 simulated for every test that ran afterwards. Harmless while nothing resolved
 per-org adapters; wrong the moment something did.
+
+### 3.13 Automating the workflow steps that were never decisions (added 2026-08-18)
+
+`services/pipeline.py` made every stage's backlog visible. Reading it honestly
+produced an uncomfortable answer: most of what it reported as waiting was
+waiting on a person to press the same button, on the same item, for the same
+reason, again. Checking a draft, writing a kept idea, building the pieces a
+campaign had already planned, measuring a post that went live last week - none
+of those are decisions. They are the queue being carried by hand.
+
+`services/automation.py` names each of those transitions as a **step**, and an
+organization can switch any of them on:
+
+| step | drains | what it does |
+|---|---|---|
+| `ideas.draft` | Ideas | writes a kept idea into a checked draft and links the idea to the piece |
+| `campaigns.build` | Campaigns | writes a planned campaign piece, earliest scheduled first |
+| `studio.check` | Studio | runs the quality check on a draft that has never been measured |
+| `studio.render` | Studio | renders a checked piece's waiting image, carousel or video |
+| `performance.scan` | Performance | takes the first measurement of something published |
+| `channels.publish` | Channels | **gated — can never be switched on** |
+
+**Each step calls the function the button calls.** `studio.check` is
+`routers/studio.recheck`, which is the endpoint's own body lifted out of it;
+`campaigns.build` is `routers/campaigns._build_one` verbatim. The endpoints were
+refactored to expose those, rather than the drainer growing its own copy. This
+is the whole design constraint: automation must not be able to do a slightly
+different thing than the button does. Queues come from
+`pipeline.content_position` for the same reason - two definitions of "needs
+checking" is exactly the drift this codebase has already been bitten by.
+
+**Publishing is listed and refused.** It appears in the registry with the reason
+printed next to it rather than being omitted, because an absent step reads as an
+oversight and invites "why not that one too" as an open question. The refusal is
+enforced three times, independently: `settings_for()` reads a gated step back as
+disabled whatever is stored, `set_settings()` refuses to write it (422), and the
+drainer re-checks `step.gate` immediately before acting. A hand-edited row, a
+restored backup and a caller that skips the setter all fail closed - and
+`tests/test_automation.py` asserts each layer separately, including one test that
+writes the forcing config directly to the column.
+
+**Two levels of trust, not one.** A step's toggle means "this may be done for me
+at all"; `automation.enabled` means "and it may happen while nobody is watching".
+A manual run honours the first and ignores the second, because the operator
+pressing Run now *is* there. `_skip_reason()` is the single place that decides,
+shared by the preview and the drainer, so what the preview promised is what
+happens.
+
+**Bounded, and never silently.** Every step has a per-run cap (`max_per_run`,
+hard-ceilinged at 50 regardless of config), so switching everything on cannot
+turn one sweep into an unbounded spend of model calls. One item's failure is
+recorded against that item and never ends the run. A permanent "not possible" -
+a text post with no file to render, a private send with nothing public to
+measure - is a `Skip`, not a failure, and where it is permanent the item is
+excluded from the queue entirely rather than retried and failed nightly.
+
+**One drainer per organization, and a run that dies says so.** `execute()` runs
+on a background worker, which does not survive a process restart - a deploy
+landing mid-sweep leaves the row saying "running" with nobody behind it. Left
+alone, that row blocks every later run for that org forever, because nothing
+else ever moves a row out of "running". So: `reap_stale_runs()` at startup
+(`main.py`, beside the analytics reaper that exists for the identical reason),
+and again from `is_running()` so an org is not locked out until the next deploy.
+Staleness is measured against **progress**, not total duration - `_save()` writes
+`updated_at` after every item, and the slowest single item is a render, which the
+studio itself abandons at 15 minutes; 30 minutes of silence is dead, while a
+long-but-healthy sweep is untouched however long it takes. `run_now()` honours
+the same one-drainer rule the endpoint does: it did not at first, which meant the
+scheduled sweep was the one caller able to walk past the guard and race a manual
+run the operator had just started.
+
+**Every run is stored item by item** (`AutomationRun`), including the steps that
+were off and the ones with nothing waiting. Nobody was watching, so "3
+processed" is not an answer to "what did it write last night" - and "the renders
+didn't happen" and "the renders were never attempted" are different problems
+that a report listing only the steps that acted cannot tell apart.
+
+Surfaced in the plugin twice on purpose: a full Automation page, and a toggle
+under the queue strip on the page that owns each step - an operator looking at
+"14 waiting to be checked" is exactly the person who wants to stop checking them
+by hand, and sending them off to find a settings page is how a feature goes
+unused.
 
 ## 4. Deployment scaffolding
 

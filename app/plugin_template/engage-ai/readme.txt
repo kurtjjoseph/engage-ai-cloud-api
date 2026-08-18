@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.32.0
+Stable tag: 0.33.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -32,6 +32,14 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 Only the pages for your active modules appear in the menu, so this list is longer than what most organizations see.
 
 == Changelog ==
+
+= 0.33.0 =
+* The steps you were doing by hand can now do themselves. Checking a new draft, writing a kept idea, building the pieces a campaign already planned, and taking the first performance measurement of a published post are all things Engage AI did the same way every time and still waited for you to click. Each is now a switch — on the new Automation page, and directly under the queue it drains on the page you are already looking at.
+* Two switches, not one. A step's own switch says "you may do this for me". The master switch says "and you may do it while I am not here". An operator who wants the checks run when they press Run now, but nothing happening at three in the morning, can have exactly that.
+* Publishing is not on the list and cannot be added to it. It is shown, locked, with the reason next to it, because a missing step reads as an oversight rather than a decision. Nothing goes in front of your audience without you choosing to send it — the Automation page, the API and the queue toggles each refuse it independently.
+* Every automatic run is written down item by item: what it wrote, what it checked, what it could not do and why. You were not there when it happened, so "3 things done" is not an answer — the Automation page names them.
+* Each step has a ceiling on how much it takes in one run, so switching everything on cannot turn one sweep into a surprise. One item failing is recorded against that item and never stops the rest.
+* A run interrupted partway through — almost always an update landing while it was working — now says so and lists what it had already done, instead of showing "Running" forever and refusing to start another.
 
 = 0.32.0 =
 * Campaigns now tell you when a piece is about to state something you never gave them. A price, a date, a headcount, a percentage or the word "free" that appears nowhere in your organization's details or in the subject you typed is flagged on the plan, before six pieces get written on top of it. The first real run of the campaign planner invented a "free presence scan" nobody had offered, and every later piece repeated it as settled fact.
