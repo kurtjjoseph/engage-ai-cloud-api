@@ -593,7 +593,13 @@ def draft_instructions(surface: Surface) -> str:
 def json_shape(surface: Surface) -> str:
     """The exact JSON object the model must return for this surface."""
     parts = [
-        '"title": "short internal title for this piece"',
+        # NOT an internal label, which is what this used to ask for - and got:
+        # "Behind the Scenes: Scan to Plan (IG Carousel)". On a website surface
+        # this string becomes the published WordPress post title, and on every
+        # other surface it is what the operator reads in the library and the
+        # calendar. There is no such thing as an internal title here.
+        '"title": "the title a reader sees - never a label for us: no format, '
+        'channel or campaign-role names in it"',
         '"body": "string"',
         '"hashtags": ["string"]',
     ]

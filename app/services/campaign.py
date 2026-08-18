@@ -30,6 +30,7 @@ from anthropic import Anthropic
 from app.config import settings
 from app.services.claude_json import extract_json
 from app.services.content_ideas import guidance_for
+from app.services.studio import support_text, unverified_claims
 from app.services.studio_formats import goal_guidance, goal_label
 from app.services.surfaces import (
     SURFACES,
@@ -194,7 +195,7 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
                 "The plan came back with no usable pieces. Try again, or give the "
                 "campaign a more specific subject to work from."
             )
-        return {
+        plan = {
             "name": _clean(data.get("name")) or f"{goal_label(goal)} campaign",
             "big_idea": _clean(data.get("big_idea")),
             "audience": _clean(data.get("audience")),
@@ -204,6 +205,7 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
             "ends_on": end.isoformat(),
             "items": items,
         }
+        return flag_invented_facts(plan, support_text(org_context, theme))
 
     # ------------------------------------------------------------ deterministic
     def shape_items(self, raw_pieces, allowed, count: int, start: date, end: date) -> list[dict]:
@@ -317,6 +319,33 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
         if not isinstance(data, dict):
             raise PlanFailed("The model's reply wasn't a plan object. Try again.")
         return data
+
+
+def flag_invented_facts(plan: dict, sources: str) -> dict:
+    """Marks every specific in the plan that the operator never actually gave -
+    on the big idea, and on each piece.
+
+    Caught HERE, at the plan, because this is the cheap moment: a plan is one
+    model call and the operator is already looking at it. The same invention
+    found after the build has been copied into every piece that inherited it,
+    and one of them has probably been published. The first real run of this
+    planner invented "book a free presence scan" in a piece's angle - nobody had
+    offered one - and every later piece repeated it as if it were settled.
+
+    Advisory, never fatal: a flagged plan still saves and still builds. Only the
+    operator knows whether the number is real, and a planner that refused to
+    plan would be worse than one that shows its working."""
+    if not sources:
+        return plan
+    plan["unverified"] = unverified_claims(
+        {"title": plan.get("name", ""), "body": plan.get("big_idea", "")}, sources)
+    for item in plan.get("items") or []:
+        item["unverified"] = unverified_claims(
+            {"title": item.get("headline", ""),
+             "body": " ".join([item.get("angle", ""), item.get("why", "")])},
+            sources,
+        )
+    return plan
 
 
 def role_brief(role: str) -> str:

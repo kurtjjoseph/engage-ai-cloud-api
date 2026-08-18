@@ -66,6 +66,110 @@ _GOALS_NEEDING_CTA = {"leads", "sales", "attendance"}
 
 _NARRATION_MAX = 90  # chars per slide - what fits legibly, centred, on a phone
 
+# The one rule the copywriter breaks in the way that actually costs something.
+# The campaign planner has always been told this; the copywriter never was, and
+# the copywriter is the pass that writes the numbers. A drafted proof piece came
+# back claiming "an average of 3.75 out of 10 across all eight channels" and a
+# "free 15-minute call" - both invented, both entirely publishable-looking, and
+# both about to go out under the organization's name.
+NO_INVENTION_RULE = (
+    "Never invent a fact. A price, a date, a discount, a number of places, a statistic, a named "
+    "person or a result you were not given is a defect, not a detail - write around it, or leave "
+    "the specific out. Only use numbers, money, dates and outcomes that appear in the material "
+    "you were given."
+)
+
+# What a reader takes as a checkable fact. Deliberately only the shapes that are
+# WRONG in a way that matters - money, scores, percentages, counts, dates and
+# "free" - because a check nobody trusts is a check everybody clicks past. Word
+# forms ("eight channels") are not matched: only a digit makes a claim look
+# precise enough to be believed without thinking.
+_CLAIM_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"[€$£]\s?\d[\d.,]*", re.IGNORECASE),
+    re.compile(r"\b\d[\d.,]*\s?(?:euros?|eur|dollars?|pounds?)\b", re.IGNORECASE),
+    re.compile(r"\b\d+(?:[.,]\d+)?\s?%"),
+    re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:out of|/)\s*\d+\b", re.IGNORECASE),
+    re.compile(r"\b\d+(?:[.,]\d+)?x\b", re.IGNORECASE),
+    re.compile(
+        r"\b\d[\d.,]*[-\s]?(?:clients?|customers?|churches?|ministries|organi[sz]ations?|members?|"
+        r"founders?|people|users?|places?|spots?|seats?|minutes?|hours?|days?|weeks?|months?|years?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:free|gratis|no charge|at no cost|money[- ]back)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
+)
+
+
+def support_text(*parts) -> str:
+    """Everything the writer was actually given, flattened to one searchable
+    string. Nested because org context carries lists of dicts (locations,
+    speakers) whose values are legitimate source facts too."""
+    out: list[str] = []
+
+    def walk(value) -> None:
+        if isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item)
+        elif value is not None:
+            out.append(str(value))
+
+    walk(parts)
+    return " ".join(out).lower()
+
+
+def unverified_claims(draft: dict, sources: str) -> list[str]:
+    """The specifics in this draft that appear nowhere in what the writer was
+    given - i.e. the things it made up.
+
+    Deterministic on purpose, like the rest of the check: no model call, and no
+    opinion about whether the claim is *plausible*. A claim is supported when
+    its own digits (or the word "free") are present in the source material, and
+    unsupported otherwise. That is a blunt test, and blunt is the right shape
+    here - the operator is being asked to confirm a handful of strings, not to
+    read an argument about them."""
+    if not sources:
+        return []
+    haystack = " ".join(sources.split()).lower()
+    found: list[str] = []
+    text = " ".join(
+        str(value)
+        for key, value in (draft or {}).items()
+        if key in ("title", "body") or isinstance(value, str)
+    )
+    for pattern in _CLAIM_PATTERNS:
+        for match in pattern.finditer(text):
+            claim = " ".join(match.group(0).split())
+            digits = re.findall(r"\d[\d.,]*", claim)
+            supported = all(d.rstrip(".,") in haystack for d in digits) if digits else claim.lower() in haystack
+            if not supported and claim.lower() not in (c.lower() for c in found):
+                found.append(claim)
+    return found[:8]
+
+
+class WriteFailed(RuntimeError):
+    """A pass that couldn't produce content, and WHY.
+
+    The same lesson the campaign planner already learned, applied to the pass
+    that makes most of the model calls: an exhausted account, a rate limit, a
+    reply that isn't JSON and a reply cut off at the token limit are four
+    different problems with four different fixes. The message is shown verbatim
+    to the operator, so it says what happened and what to do about it.
+
+    `retryable` is False only when running the identical call again cannot
+    help, so an unattended campaign build knows the difference between bad luck
+    and a piece that will never fit."""
+
+    def __init__(self, message: str, retryable: bool = True) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
 
 def _clean(value) -> str:
     return str(value or "").strip()
@@ -348,9 +452,10 @@ Format: {FORMATS[layout.format]['label']}. Canvas {layout.width}x{layout.height}
 {hashtag_rule}
 {cta_rule}
 Use the organization's real context (name, mission, tone, audience, locations) so it sounds like them, and never exceed a stated character limit.
+{NO_INVENTION_RULE}
 
 Return ONLY valid JSON, no markdown fences, matching exactly:
-{{"title": "short internal title for this piece",
+{{"title": "the title a reader sees - never a label for us: no format or channel names in it",
   "body": "string",
   "hashtags": ["string"],
   "image_prompt": "string",
@@ -495,7 +600,13 @@ Constraints: body at most {layout.body_max} characters ({layout.body_target}); a
 
 Return ONLY valid JSON, no markdown fences, in the same shape as the draft you were given."""
         user = {"organization": org_context, "format": layout.format, "channel": layout.channel, "draft": draft}
-        data = self._json_call(system, user, max_tokens=4096)
+        # A failed revise is not a failed request: the checked draft is still a
+        # real, usable piece, and losing it because the polish pass fell over
+        # would be worse than keeping the issues the operator can already see.
+        try:
+            data = self._json_call(system, user, max_tokens=4096)
+        except WriteFailed:
+            return draft
         if not isinstance(data, dict) or not _clean(data.get("body")):
             return draft
         return self._shape_draft(data, layout, {"headline": draft.get("title", "")})
@@ -601,6 +712,7 @@ The idea to execute:
 
 {cta_rule}
 Use the organization's real context (name, mission, tone, audience, locations) so it sounds like them, and never exceed a stated character limit.
+{NO_INVENTION_RULE}
 
 Return ONLY valid JSON, no markdown fences, matching exactly:
 {json_shape(surface)}"""
@@ -613,7 +725,7 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
         return _shape_surface_draft(data, surface, idea)
 
     def check_surface(self, draft: dict, surface: Surface, goal: str,
-                      expects_cta: bool | None = None) -> tuple[dict, dict]:
+                      expects_cta: bool | None = None, sources: str = "") -> tuple[dict, dict]:
         """Pass 3, surface-aware. Measures the draft against the surface
         contract and repairs everything mechanically repairable.
 
@@ -624,7 +736,12 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
         piece. The Campaign Creator sets it from the piece's role in the arc:
         a hook is briefed NOT to ask, so holding it to the campaign's
         leads/sales goal would flag a warning for doing exactly what it was
-        told. None (the normal case) keeps the goal-derived rule."""
+        told. None (the normal case) keeps the goal-derived rule.
+
+        `sources` is everything the writer was given - the org context, the
+        idea, and the campaign brief. Passing it turns on the invented-fact
+        check; leaving it empty skips it, because with nothing to check against
+        every number in the copy would look invented."""
         draft = json.loads(json.dumps(draft or {}))
         issues: list[dict] = []
         fixed: list[str] = []
@@ -675,6 +792,15 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
             draft["ends_on"] = draft["starts_on"]
             fixed.append("The end date was before the start date - set them to the same day.")
 
+        # Deliberately NOT auto-fixed: only the operator knows whether the price
+        # is real. One issue listing all of them, not one per claim, so a piece
+        # is not scored into the ground for a single invented sentence.
+        invented = unverified_claims(draft, sources)
+        if invented:
+            issue("body", "warning",
+                  "These specifics aren't in anything this piece was given, so they may be invented - "
+                  f"confirm or remove each one: {', '.join(invented)}.")
+
         errors = sum(1 for i in issues if i["severity"] == "error")
         warnings = len(issues) - errors
         return draft, {"score": max(0, 100 - errors * 30 - warnings * 10),
@@ -700,15 +826,22 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
 {json_shape(surface)}"""
         user = {"organization": org_context, "surface": surface.id, "draft": draft,
                 "limits": surface_limits(surface)}
-        data = self._json_call(system, user, max_tokens=8192)
+        try:  # see revise() - the checked draft survives a failed polish pass
+            data = self._json_call(system, user, max_tokens=8192)
+        except WriteFailed:
+            return draft
         if not isinstance(data, dict) or not _clean(data.get("body")):
             return draft
         return _shape_surface_draft(data, surface, {"headline": draft.get("title", "")})
 
     # ------------------------------------------------------------------ util
     def _json_call(self, system: str, user: dict, max_tokens: int) -> dict:
-        """One Claude call returning parsed JSON, or {} on any failure - a pass
-        that can't parse its own output must not 500 the request."""
+        """One Claude call returning parsed JSON.
+
+        Raises WriteFailed naming the actual cause rather than returning {}.
+        The four causes need four different actions from the operator, and
+        every one of them used to arrive as "is ANTHROPIC_API_KEY configured?"
+        - which is the one thing that was already fine."""
         try:
             response = self.client.messages.create(
                 model=settings.anthropic_model,
@@ -716,11 +849,27 @@ Return ONLY valid JSON, no markdown fences, matching exactly:
                 system=system,
                 messages=[{"role": "user", "content": json.dumps(user)}],
             )
-        except Exception:  # noqa: BLE001 - surfaced to the operator as "try again"
-            return {}
+        except Exception as exc:  # noqa: BLE001 - reported verbatim, not swallowed
+            raise WriteFailed(
+                f"The model call failed ({type(exc).__name__}): {str(exc)[:300]}"
+            ) from exc
+
         text = "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
+        if not text.strip():
+            raise WriteFailed("The model returned nothing. Try again.")
+        if getattr(response, "stop_reason", None) == "max_tokens":
+            # Not retryable as-is: an identical prompt truncates identically.
+            raise WriteFailed(
+                "The copy was cut off before it finished - the piece is too long for this surface. "
+                "Try a shorter surface, or write it again with a tighter angle.",
+                retryable=False,
+            )
         try:
             data = extract_json(text)
         except (json.JSONDecodeError, ValueError):
-            return {}
-        return data if isinstance(data, dict) else {}
+            raise WriteFailed(
+                f"The model's reply couldn't be read as content. It began: {text.strip()[:160]}"
+            ) from None
+        if not isinstance(data, dict):
+            raise WriteFailed("The model's reply wasn't a content object. Try again.")
+        return data

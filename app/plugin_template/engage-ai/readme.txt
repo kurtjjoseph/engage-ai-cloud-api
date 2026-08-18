@@ -4,7 +4,7 @@ Tags: church, ai, content generation, engagement, automation
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 0.31.1
+Stable tag: 0.32.0
 License: GPLv2 or later
 
 Generates and auto-publishes church engagement content, modular autonomous check-in agents for the 8 Claude AI side hustles, and web-search-based digital footprint analytics, via the Engage AI Cloud API.
@@ -32,6 +32,13 @@ The AI Assistant page (Engage AI > AI Assistant) answers free-form questions gro
 Only the pages for your active modules appear in the menu, so this list is longer than what most organizations see.
 
 == Changelog ==
+
+= 0.32.0 =
+* Campaigns now tell you when a piece is about to state something you never gave them. A price, a date, a headcount, a percentage or the word "free" that appears nowhere in your organization's details or in the subject you typed is flagged on the plan, before six pieces get written on top of it. The first real run of the campaign planner invented a "free presence scan" nobody had offered, and every later piece repeated it as settled fact.
+* The copywriter is now told, in as many words, never to invent a price, a date, a statistic, a named person or a result. It was the one pass that had never been told.
+* Titles stopped talking to us instead of to your readers. "Proof post: our own scorecard", "8 Places People Check — LinkedIn Carousel", "Behind the Scenes: Scan to Plan (IG Carousel)" — the format, the channel and the piece's job in the campaign no longer leak into the title, which on a website piece is the published post title.
+* When a piece cannot be written, Engage AI now says why. A rate limit, an exhausted account, a reply it could not read and copy cut off for being too long are four different problems; all four used to arrive as "is ANTHROPIC_API_KEY configured?", which was never the problem.
+* A campaign build gives a piece one second chance before giving up on it. A single rate-limited response used to lose that piece for the whole run — and the piece it lost in testing was the offer, the only one in the arc that asks.
 
 = 0.31.1 =
 * Fixed: "Write it" on the Ideas page opened the Content Studio but left the idea behind, so you had to type it in again — and the idea stayed in your kept list after it had been written. The idea now arrives in the Studio ready to build, and once written it moves to the Written tab and links to the piece it became. Your kept list actually goes down as you work through it.

@@ -466,6 +466,25 @@ class EngageAI_Admin_Campaigns
                             <?php if (!empty($item['why'])): ?>
                                 <p class="eas-idea__why"><?php echo esc_html((string) $item['why']); ?></p>
                             <?php endif; ?>
+                            <?php
+                            // Shown at the PLAN, before six pieces get written on
+                            // top of a number nobody gave us. Every specific here
+                            // appears nowhere in the organization's details or in
+                            // the subject you typed, so it was invented.
+                            $unverified = is_array($item['unverified'] ?? null) ? $item['unverified'] : [];
+                            if ($unverified):
+                                ?>
+                                <p class="eac-piece__unverified">
+                                    <strong><?php esc_html_e('Check before you build:', 'engage-ai'); ?></strong>
+                                    <?php
+                                    printf(
+                                        /* translators: %s: comma-separated list of unverified specifics */
+                                        esc_html__('nothing you gave Engage AI mentions %s. Correct the idea, or add the detail to the subject above, so the copy does not repeat an invented fact.', 'engage-ai'),
+                                        esc_html(implode(', ', array_map('strval', $unverified)))
+                                    );
+                                    ?>
+                                </p>
+                            <?php endif; ?>
                             <div class="eac-piece__controls">
                                 <label>
                                     <span class="eas-label"><?php esc_html_e('Goes out', 'engage-ai'); ?></span>

@@ -14,6 +14,7 @@ Everything is persisted on the ContentItem, so a piece can be left half-built
 and picked up later, and so the existing Content library keeps working - the
 studio writes the same output_payload fields the older workflow reads.
 """
+from contextlib import contextmanager
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -22,12 +23,12 @@ from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal, get_db
 from app.deps import get_current_user
-from app.models.entities import ContentItem, MediaAsset, User
+from app.models.entities import Campaign, ContentItem, MediaAsset, User
 from app.routers.organizations import get_owned_org
 from app.schemas import ContentOut
 from app.services.content_ideas import DEFAULT_SITE_TYPE
 from app.services.media_gen import ImageGenService, StudioRenderer
-from app.services.studio import StudioService
+from app.services.studio import StudioService, WriteFailed, support_text
 from app.services.studio_formats import (
     DEFAULT_CHANNEL,
     DEFAULT_FORMAT,
@@ -53,6 +54,25 @@ renderer = StudioRenderer(ImageGenService())
 # tasks don't survive a redeploy, and the operator needs a retry, not a
 # permanent spinner.
 _RENDER_TIMEOUT_SECONDS = 15 * 60
+
+
+@contextmanager
+def _writing(what: str):
+    """Runs one studio pass and reports what actually went wrong with it.
+
+    Every failure in here used to arrive as "is ANTHROPIC_API_KEY configured?",
+    which sent the operator to check an environment variable that was already
+    fine. A missing key and a model that fell over are two different sentences,
+    and only one of them is about the environment."""
+    if studio.client is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{what} No ANTHROPIC_API_KEY is set on the API, so nothing can be written.",
+        )
+    try:
+        yield
+    except WriteFailed as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 class IdeasRequest(BaseModel):
@@ -113,6 +133,23 @@ def _org_context(org) -> dict:
 
 def _site_type(org) -> str:
     return (org.site_facts or {}).get("site_type") or DEFAULT_SITE_TYPE
+
+
+def _sources_for(item: ContentItem, org, db: Session) -> str:
+    """The material this piece is allowed to take a fact from: the profile the
+    owner filled in, plus the theme the operator typed if it came from a
+    campaign.
+
+    Wired through the EDIT path too, not just the draft path, so the warning
+    doesn't quietly disappear the moment an operator changes the hashtags on a
+    piece whose invented number they never touched. Their own edits get measured
+    by the same rule - which is the point: the check reports what nothing on
+    record supports, and asks them to confirm it, not to justify it."""
+    theme = None
+    if item.campaign_id:
+        campaign = db.query(Campaign).filter(Campaign.id == item.campaign_id).first()
+        theme = campaign.theme if campaign else None
+    return support_text(_org_context(org), theme)
 
 
 def _get_item(content_id: int, org, db: Session) -> ContentItem:
@@ -239,13 +276,14 @@ def studio_surface_ideas(
     """Pass 1, surface-aware: a goal in, ideas out - each already naming the
     exact surface it should be published on. Nothing is saved."""
     org = get_owned_org(organization_id, db, user)
-    ideas = studio.surface_ideas(_org_context(org), payload.goal, _site_type(org),
-                                 payload.channels, payload.notes, payload.count)
-    if not ideas:
-        raise HTTPException(
-            status_code=503,
-            detail="No ideas could be generated (is ANTHROPIC_API_KEY configured?). Try again.",
-        )
+    with _writing("No ideas could be generated."):
+        ideas = studio.surface_ideas(_org_context(org), payload.goal, _site_type(org),
+                                     payload.channels, payload.notes, payload.count)
+        if not ideas:
+            raise HTTPException(
+                status_code=503,
+                detail="The ideas came back empty. Try again, or give the studio a note to work from.",
+            )
     return {"goal": payload.goal, "ideas": ideas}
 
 
@@ -266,13 +304,15 @@ def studio_surface_draft(
         raise HTTPException(status_code=400, detail=f"Unknown surface '{payload.surface}'.")
     idea = payload.idea.model_dump()
 
-    draft = studio.draft_surface(_org_context(org), idea, surface, payload.goal, _site_type(org))
-    if not draft or not draft.get("body"):
-        raise HTTPException(
-            status_code=503,
-            detail="The copy couldn't be written (is ANTHROPIC_API_KEY configured?). Try again.",
-        )
-    draft, report = studio.check_surface(draft, surface, payload.goal)
+    with _writing("The copy couldn't be written."):
+        draft = studio.draft_surface(_org_context(org), idea, surface, payload.goal, _site_type(org))
+        if not draft or not draft.get("body"):
+            raise HTTPException(
+                status_code=503,
+                detail="The copy came back empty. Try writing this piece again.",
+            )
+    draft, report = studio.check_surface(draft, surface, payload.goal,
+                                         sources=support_text(_org_context(org), idea))
 
     state = {
         "version": 2,
@@ -318,12 +358,13 @@ def studio_ideas(
     carrying the format and channel that would serve it. Nothing is saved yet;
     the operator picks one and it becomes a draft."""
     org = get_owned_org(organization_id, db, user)
-    ideas = studio.ideas(_org_context(org), payload.goal, _site_type(org), payload.notes, payload.count)
-    if not ideas:
-        raise HTTPException(
-            status_code=503,
-            detail="No ideas could be generated (is ANTHROPIC_API_KEY configured?). Try again.",
-        )
+    with _writing("No ideas could be generated."):
+        ideas = studio.ideas(_org_context(org), payload.goal, _site_type(org), payload.notes, payload.count)
+        if not ideas:
+            raise HTTPException(
+                status_code=503,
+                detail="The ideas came back empty. Try again, or give the studio a note to work from.",
+            )
     return {"goal": payload.goal, "ideas": ideas}
 
 
@@ -342,12 +383,13 @@ def studio_draft(
     layout = layout_for(payload.channel, payload.format)
     idea = payload.idea.model_dump()
 
-    draft = studio.draft(_org_context(org), idea, layout, payload.goal, _site_type(org))
-    if not draft or not draft.get("body"):
-        raise HTTPException(
-            status_code=503,
-            detail="The copy couldn't be written (is ANTHROPIC_API_KEY configured?). Try again.",
-        )
+    with _writing("The copy couldn't be written."):
+        draft = studio.draft(_org_context(org), idea, layout, payload.goal, _site_type(org))
+        if not draft or not draft.get("body"):
+            raise HTTPException(
+                status_code=503,
+                detail="The copy came back empty. Try writing this piece again.",
+            )
     draft, report = studio.check(draft, layout, payload.goal)
 
     state = {
@@ -399,10 +441,12 @@ def studio_check(
         # (routers/campaigns.py); a one-off piece has no such key and falls
         # back to the goal-derived rule.
         expects_cta = state.get("expects_cta")
-        draft, report = studio.check_surface(_surface_draft(output, surface), surface, goal, expects_cta)
+        sources = _sources_for(item, org, db)
+        draft, report = studio.check_surface(_surface_draft(output, surface), surface, goal,
+                                             expects_cta, sources=sources)
         if revise and report["issues"]:
             revised = studio.revise_surface(draft, surface, report, _org_context(org))
-            draft, report = studio.check_surface(revised, surface, goal, expects_cta)
+            draft, report = studio.check_surface(revised, surface, goal, expects_cta, sources=sources)
             report["revised"] = True
         state["quality"] = report
         state["step"] = "checked"
@@ -455,7 +499,7 @@ def studio_edit(
             if key in declared:
                 draft[key] = value
         draft, report = studio.check_surface(draft, surface, state.get("goal", DEFAULT_GOAL),
-                                             state.get("expects_cta"))
+                                             state.get("expects_cta"), sources=_sources_for(item, org, db))
         state["quality"] = report
         state["step"] = "checked"
         _write_surface(item, draft, state)

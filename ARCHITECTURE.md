@@ -182,6 +182,26 @@ The Content Studio (§3.9) answers "what should this post say?". It never answer
 
 **Nothing publishes.** A finished campaign is a set of drafts, each of which goes out through the same explicit, per-piece publish the studio already requires.
 
+### 3.11a A fact is only a fact if a human gave it to us (added 2026-08-17)
+
+The first real founders campaign came back with an invented score ("an average of 3.75 out of 10 across all eight channels"), an invented offer ("book a free presence scan") and an invented duration ("15-minute call"). Nobody had said any of it. Every piece read as finished, publishable copy — which is exactly what makes it dangerous, because the operator's job at that point is to approve, not to fact-check.
+
+Three things were wrong, and they are three separate fixes:
+
+**The copywriter was never told not to invent.** The *planner* had carried that rule since it was written; `draft_surface`/`draft` never had it, and the copywriter is the pass that writes the numbers. `NO_INVENTION_RULE` in `services/studio.py` is now in both drafting prompts.
+
+**A prompt rule is not a guarantee, so the check measures it** (`unverified_claims`, run inside `check_surface`). Deterministic like the rest of pass 3 — no model call and no opinion about whether the claim is *plausible*: a specific is supported when its own digits (or the word "free") appear in the source material, and unsupported otherwise. It reports **one** warning listing every unconfirmed specific, never an error and never auto-fixed, because only the operator knows whether the price is real.
+
+**The source material is human-entered material only** — the organization profile and the operator's typed theme (`_ground_truth` in `routers/campaigns.py`). Explicitly *not* the campaign's big idea or the piece's own angle, even though both are right there and read like context. They are model output. Counting them turned the planner's invented "free presence scan" into the evidence for the copy repeating it: the invention laundered itself into a fact on the way through the run. That is the failure this check exists to stop, and the first version of it had the bug.
+
+**And it is caught at the plan, not after the build** (`flag_invented_facts`): a plan is one model call, the operator is already looking at it, and each item carries its own `unverified` list into the plugin's review screen. The same invention found after the build has already been copied into every piece that inherited it.
+
+**Titles are reader-facing, and the schema used to say otherwise.** `json_shape` asked for a *"short internal title for this piece"* and got exactly that — "Behind the Scenes: Scan to Plan (IG Carousel)". On a website surface that string becomes the published WordPress post title. There is no internal title here; the schema now says so, and `_clean_title` strips a trailing label as a backstop, matching only where a label sits (a bracketed tag, a `Role:` prefix, a trailing `- Carousel`) so a real title containing the word survives.
+
+**What this check does NOT catch, stated plainly:** it measures *specifics* — digits, money, dates, "free". It says nothing about qualitative invention, and the same founders run produced three examples of it that passed with a score of 100: "even after the price changes for everyone who joins later" (nobody said the price would rise), "a small team in Amersfoort doing this work by hand every month" (it is software, and there are no monthly clients yet), and an offer of a presence scan to people who have not bought anything. Catching those needs judgement, and pass 3 is deterministic by design (§3.9) — so this is a boundary, not a bug, and the operator still has to read the copy. A judgement-based second opinion belongs in `revise_surface`'s territory if it is ever built; it does not belong in the check.
+
+**A pass that fails says what failed** (`WriteFailed`). An exhausted account, a rate limit, an unreadable reply and copy truncated at the token limit are four problems with four fixes, and all four used to reach the operator as "is ANTHROPIC_API_KEY configured?" — the one thing that was already fine. `retryable` is False only when an identical call cannot help (truncation), which is what lets an unattended build give a piece exactly one second chance: the piece lost to a single bad response in testing was the offer, the only one in the arc that asks.
+
 ### 3.12 Postiz as a second delivery transport (added 2026-08-10)
 
 Full design note: `docs/postiz-integration.md`.

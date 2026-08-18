@@ -22,6 +22,8 @@ from app.deps import get_current_user
 from app.main import app
 from app.models.entities import Campaign, ContentItem, Organization, User
 from app.services.campaign import CampaignPlanner, MAX_PIECES, MIN_PIECES, window
+from app.services.studio import WriteFailed
+from app.services.surfaces import resolve as resolve_surface
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 Base.metadata.create_all(bind=engine)
@@ -423,14 +425,42 @@ def test_a_piece_is_held_to_its_role_not_the_campaigns_goal(client, planned, mon
 
 
 def test_the_internal_role_never_leaks_into_a_pieces_title():
-    strip = campaigns_router._strip_role_tag
-    assert strip("Why your sourdough falls flat (Hook)", "hook") == "Why your sourdough falls flat"
-    assert strip("While the city sleeps [Campaign Hook]", "hook") == "While the city sleeps"
-    # Only this piece's own role, only bracketed, only at the end.
-    assert strip("Why your sourdough falls flat (Hook)", "offer") == "Why your sourdough falls flat (Hook)"
-    assert strip("Our autumn offer", "offer") == "Our autumn offer"
-    assert strip("Hooked on real bread", "hook") == "Hooked on real bread"
-    assert strip("(Hook)", "hook") == "(Hook)"  # never leaves a piece untitled
+    strip = campaigns_router._clean_title
+    carousel = resolve_surface("instagram.carousel")
+    assert strip("Why your sourdough falls flat (Hook)", "hook", carousel) == "Why your sourdough falls flat"
+    assert strip("While the city sleeps [Campaign Hook]", "hook", carousel) == "While the city sleeps"
+    # A leading label is the other shape it comes back in, and the one that
+    # actually shipped: "Proof post: our own 8-channel scorecard".
+    assert strip("Proof post: our own scorecard", "proof", carousel) == "our own scorecard"
+    assert strip("Offer - join the founding group", "offer", carousel) == "join the founding group"
+    # A bracketed role tag is machinery whichever piece it lands on - the model
+    # mislabels as readily as it labels, and no reader wants either.
+    assert strip("Why your sourdough falls flat (Hook)", "offer", carousel) == "Why your sourdough falls flat"
+    # What protects a real title is WHERE the word sits, not which role it names.
+    assert strip("Our autumn offer", "offer", carousel) == "Our autumn offer"
+    assert strip("Behind every good loaf", "behind_scenes", carousel) == "Behind every good loaf"
+    assert strip("Hooked on real bread", "hook", carousel) == "Hooked on real bread"
+    assert strip("(Hook)", "hook", carousel) == "(Hook)"  # never leaves a piece untitled
+
+
+def test_the_surface_name_never_leaks_into_a_pieces_title():
+    strip = campaigns_router._clean_title
+    carousel = resolve_surface("instagram.carousel")
+    assert strip("Three founder questions - Carousel", "answer", carousel) == "Three founder questions"
+    assert strip("Three founder questions (Carousel)", "answer", carousel) == "Three founder questions"
+    # The shapes that actually shipped, none of which the surface's own label
+    # would have matched: the model names the format in its own words.
+    assert strip("8 Places People Check – LinkedIn Carousel", "teach",
+                 resolve_surface("linkedin.document")) == "8 Places People Check"
+    assert strip("Behind the Scenes: Scan to Plan (IG Carousel)", "behind_scenes",
+                 carousel) == "Scan to Plan"
+    assert strip("Founding member explained - objection-handling article", "answer",
+                 resolve_surface("linkedin.article")) == "Founding member explained"
+    # And a real title that happens to contain the word is untouched, because
+    # only a TRAILING tag is a label.
+    assert strip("The carousel that sold out", "answer", carousel) == "The carousel that sold out"
+    assert strip("Why the article beat the video", "teach",
+                 resolve_surface("linkedin.article")) == "Why the article beat the video"
 
 
 def test_one_failing_piece_does_not_abandon_the_run(client, planned, db_session, monkeypatch):
@@ -451,6 +481,45 @@ def test_one_failing_piece_does_not_abandon_the_run(client, planned, db_session,
     assert done["build"]["status"] == "failed"
     failed = [i for i in done["items"] if i["status"] == "failed"]
     assert "the model hung up" in failed[0]["error"]
+
+
+def test_a_transient_failure_gets_one_second_chance(client, planned, monkeypatch):
+    """The offer piece is the only one in the arc that asks. Losing it to one
+    rate-limited response, in an unattended run nobody is watching, is the
+    failure that costs a campaign its point."""
+    calls = itertools.count()
+
+    def flaky_draft(org_context, idea, surface, goal, site_type, brief=""):
+        if next(calls) == 1:
+            raise WriteFailed("The model call failed (RateLimitError): slow down.")
+        return _draft_payload()
+
+    org, campaign = planned
+    monkeypatch.setattr(campaigns_router.studio, "draft_surface", flaky_draft)
+    client.post(f"/campaigns/{campaign['id']}/build?organization_id={org.id}")
+
+    done = client.get(f"/campaigns/{campaign['id']}?organization_id={org.id}").json()
+    assert done["counts"] == {"total": 4, "drafted": 4, "failed": 0}
+    assert done["status"] == "ready"
+
+
+def test_a_failure_that_a_retry_cannot_help_is_not_retried(client, planned, monkeypatch):
+    """A reply cut off at the token limit truncates identically the second
+    time, so the run says so instead of spending another call to find out."""
+    calls = itertools.count()
+
+    def always_truncates(org_context, idea, surface, goal, site_type, brief=""):
+        next(calls)
+        raise WriteFailed("The copy was cut off before it finished.", retryable=False)
+
+    org, campaign = planned
+    monkeypatch.setattr(campaigns_router.studio, "draft_surface", always_truncates)
+    client.post(f"/campaigns/{campaign['id']}/build?organization_id={org.id}")
+
+    done = client.get(f"/campaigns/{campaign['id']}?organization_id={org.id}").json()
+    assert done["counts"]["failed"] == 4
+    assert next(calls) == 4, "one call per piece, not two"
+    assert "cut off" in done["items"][0]["error"]
 
 
 def test_a_failed_piece_can_be_retried_on_its_own(client, planned, monkeypatch):

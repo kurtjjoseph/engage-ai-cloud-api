@@ -165,6 +165,18 @@
     letter-spacing: 0.06em;
 }
 
+/* A specific nobody gave us. Loud enough to stop the build, not so loud it
+   reads as an error - the number may well be right, it just isn't confirmed. */
+.eac-piece__unverified {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-left: 3px solid #b26a00;
+    background: #fff8e5;
+    color: #4a3200;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
 .eac-piece__actions,
 .eac-piece__controls,
 .eac-piece__edit {

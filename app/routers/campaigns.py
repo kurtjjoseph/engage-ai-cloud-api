@@ -35,6 +35,7 @@ from app.schemas import AnnouncementsRequest, ContentOut, EventCampaignRequest, 
 from app.services.ai import EngageAIService
 from app.services.campaign import (
     CampaignPlanner,
+    flag_invented_facts,
     DEFAULT_PIECES,
     MAX_PIECES,
     MIN_PIECES,
@@ -47,7 +48,7 @@ from app.services.campaign import (
     window,
 )
 from app.services.content_ideas import DEFAULT_SITE_TYPE
-from app.services.studio import StudioService
+from app.services.studio import StudioService, WriteFailed, support_text
 from app.services.studio_formats import DEFAULT_GOAL, goals_catalog
 from app.services.surfaces import (
     SURFACES,
@@ -147,6 +148,19 @@ def _org_context(org) -> dict:
 
 def _site_type(org) -> str:
     return (org.site_facts or {}).get("site_type") or DEFAULT_SITE_TYPE
+
+
+def _ground_truth(org, campaign) -> str:
+    """The only material a piece is allowed to take a fact from: the profile the
+    owner filled in, and the theme the operator typed.
+
+    Deliberately NOT the campaign's big idea or the piece's own angle, even
+    though both are right there and both read like context. They are model
+    output. A plan that invented "book a free presence scan" would otherwise
+    count as the evidence for the copy that repeats it, and the invention would
+    launder itself into a fact on its way through the run - which is exactly
+    what happened the first time this was tried."""
+    return support_text(_org_context(org), campaign.theme)
 
 
 def _get_campaign(campaign_id: int, org, db: Session) -> Campaign:
@@ -262,6 +276,10 @@ def create_campaign(
     items = planner.shape_items(payload.items, allowed, MAX_PIECES, start, end)
     if not items:
         raise HTTPException(status_code=400, detail="A campaign needs at least one piece.")
+    # Re-flagged rather than carried over from the plan, so a piece the operator
+    # edited by hand is measured as they left it.
+    flag_invented_facts({"name": payload.name, "big_idea": payload.big_idea, "items": items},
+                        support_text(_org_context(org), payload.theme))
 
     campaign = Campaign(
         organization_id=org.id,
@@ -381,6 +399,9 @@ def patch_item(
 
     items[index] = item
     items.sort(key=lambda i: i.get("scheduled_on") or "")
+    # An edited headline or angle gets measured again, so the flags describe the
+    # piece as it stands rather than as the model first wrote it.
+    flag_invented_facts({"items": items}, _ground_truth(org, campaign))
     campaign.plan = _renumber(items)
     _sync_window(campaign)
     db.commit()
@@ -458,23 +479,87 @@ def _brief(campaign: Campaign, item: dict) -> str:
         lines.append(f"What the campaign is about: {campaign.theme}")
     lines.append(f"This piece's job in the run ({item.get('role')}): {role_brief(item.get('role', ''))}")
     lines.append("Write it so it stands alone, but don't restate the whole campaign - it is one move in a sequence.")
-    # The campaign, the role and the arc are how WE talk about the work. The
-    # reader never sees any of it, and neither should the title.
-    lines.append("Never mention the campaign, its role or its sequence anywhere in the copy or the title.")
+    # The campaign, the role, the arc and the name of the surface are how WE
+    # talk about the work. The reader never sees any of it, and neither should
+    # the title - which is exactly where it kept surfacing ("Proof post: ...",
+    # "... - Objection-Busting Carousel").
+    lines.append(
+        "Never mention the campaign, its role, its sequence or the name of the format or surface "
+        "anywhere in the copy or the title. The title is what a reader sees, not a label for us."
+    )
     return "\n".join(lines)
 
 
-def _strip_role_tag(title: str, role: str) -> str:
-    """Drops a trailing "(Hook)"-style tag from a piece's title.
+# The words that name a format, a channel or a job rather than a subject. Only
+# ever matched as a trailing tag, never inside a title.
+_LABEL_WORDS = (
+    r"(?:linkedin|instagram|facebook|youtube|google business|x|twitter|ig|fb|li|yt|web(?:site)?|"
+    r"carousel|thread|reel|short|story|stories|document|pdf|article|blog\s*post|post|page|video|"
+    r"slideshow|poll|graphic|image|caption|copy|piece|hook|teach(?:ing)?|proof|offer|answer|recap|"
+    r"behind[- ]the[- ]scenes|objection[- ]handling|objection[- ]busting)"
+)
+_TRAILING_LABEL = re.compile(
+    rf"(?:\s*[\(\[][^)\]]*?{_LABEL_WORDS}[^)\]]*?[\)\]]|\s*[-–—|]\s+(?:\w+[- ]){{0,2}}{_LABEL_WORDS})\s*$",
+    re.IGNORECASE,
+)
 
-    Telling the copywriter its role makes the copy better and makes it label
-    the title with it - asking the prompt not to only shortened the label. So
-    it is removed here instead, and narrowly: only a bracketed tag, only at the
-    end, and only when it names THIS piece's own role, so a real title ending
-    in "(Offer)" on an offer piece is the only false positive available and a
-    title like "Our Autumn Offer" is untouched."""
-    pattern = rf"\s*[\(\[]\s*(?:campaign\s+)?{re.escape(role.replace('_', ' '))}\s*[\)\]]\s*$"
-    return re.sub(pattern, "", title, flags=re.IGNORECASE).strip() or title
+
+def _clean_title(title: str, role: str, surface) -> str:
+    """Drops the machinery from a piece's title - the role it plays in the arc,
+    and the name of the surface it goes on.
+
+    Telling the copywriter its role and its surface makes the copy better and
+    makes it label the title with both - asking the prompt not to only changed
+    the shape of the label. Real titles that came back: "Proof post: our own
+    8-channel scorecard", "Three Founder Questions - Objection-Busting
+    Carousel", "Founding Group Landing Page". None of that is language a reader
+    should ever see.
+
+    Narrow on purpose, the same way the trailing-tag rule always was: a word is
+    only stripped when it names THIS piece's own role or THIS piece's own
+    surface, and only where a label sits rather than where a title does - as a
+    bracketed tag, as a "Role:" prefix, or as a trailing "- Carousel" suffix. So
+    "Our Autumn Offer" on an offer piece survives, and only a title that is
+    literally labelling itself loses the label."""
+    # "behind_scenes" comes back written as "Behind the Scenes", so the parts of
+    # a multi-word role are joined loosely rather than matched literally.
+    patterns = [r"[\s_-]+(?:the\s+)?".join(re.escape(p) for p in role.split("_") if p)]
+    if surface is not None:
+        patterns += [re.escape(surface.label), re.escape(surface.key)]
+    cleaned = title
+    for w in [p for p in patterns if p.strip()]:
+        cleaned = re.sub(rf"\s*[\(\[]\s*(?:campaign\s+)?{w}\s*[\)\]]\s*$", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(rf"\s*[-–—|]\s*{w}\s*$", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(rf"^\s*(?:campaign\s+)?(?:the\s+)?{w}(?:\s+(?:post|piece))?\s*[:\-–—]\s+", "",
+                         cleaned, flags=re.IGNORECASE)
+
+    # The tags the model actually appended, which named the format in words the
+    # surface's own label never uses: "- LinkedIn Carousel", "(IG Carousel)",
+    # "- objection-handling article". Matched as a TRAILING tag made only of
+    # this vocabulary, so a title that merely contains one of these words
+    # ("The carousel that sold out") is untouched.
+    cleaned = re.sub(_TRAILING_LABEL, "", cleaned).strip(" -–—|:")
+
+    # A title that was ONLY its label keeps the label: better a piece named
+    # "(Hook)" that the operator can see is wrong than one with no title at all.
+    return cleaned.strip() or title
+
+
+def _draft_with_retry(org, idea: dict, surface, goal: str, brief: str) -> dict:
+    """Writes one piece, giving a transient failure exactly one second chance.
+
+    A build is unattended and each piece is its own model call, so the run meets
+    every rate limit and overload the account has. Losing the offer piece - the
+    only piece in the arc that asks - to one bad response and reporting "try
+    again" to nobody is how a campaign quietly ships with its ask missing.
+    Retried once and no more: a second failure is a real one, and it is
+    reported with its actual cause rather than absorbed."""
+    try:
+        return studio.draft_surface(_org_context(org), idea, surface, goal, _site_type(org), brief)
+    except WriteFailed as exc:
+        if not exc.retryable:
+            raise
+    return studio.draft_surface(_org_context(org), idea, surface, goal, _site_type(org), brief)
 
 
 def _build_one(db: Session, campaign: Campaign, org, item: dict) -> dict:
@@ -493,16 +578,21 @@ def _build_one(db: Session, campaign: Campaign, org, item: dict) -> dict:
 
     idea = {"headline": item.get("headline", ""), "angle": item.get("angle", ""),
             "why": item.get("why", "")}
-    draft = studio.draft_surface(_org_context(org), idea, surface, campaign.goal,
-                                 _site_type(org), _brief(campaign, item))
+    brief = _brief(campaign, item)
+    try:
+        draft = _draft_with_retry(org, idea, surface, campaign.goal, brief)
+    except WriteFailed as exc:
+        return {**item, "status": "failed", "error": str(exc)[:300]}
     if not draft or not draft.get("body"):
         return {**item, "status": "failed",
                 "error": "The copy came back empty. Try writing this piece again."}
     # Held to its role, not to the campaign's goal: a hook is briefed not to
     # ask, so the goal-derived call-to-action rule would flag it for obeying.
     expects_cta = role_expects_cta(item.get("role", ""))
-    draft["title"] = _strip_role_tag(str(draft.get("title") or ""), str(item.get("role") or ""))
-    draft, report = studio.check_surface(draft, surface, campaign.goal, expects_cta)
+    draft["title"] = _clean_title(str(draft.get("title") or ""), str(item.get("role") or ""), surface)
+    draft, report = studio.check_surface(
+        draft, surface, campaign.goal, expects_cta, sources=_ground_truth(org, campaign),
+    )
 
     state = {
         "version": 2,

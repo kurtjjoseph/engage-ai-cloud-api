@@ -398,3 +398,58 @@ def test_a_reel_render_uses_the_surfaces_own_duration_not_the_old_eight_seconds(
     client.post(f"/studio/{content_id}/render?organization_id={org.id}")
 
     assert seen == {"slides": 6, "width": 720, "height": 1280, "seconds": 30.0}
+
+
+# --------------------------------------------------------- invented facts
+#
+# The check that stops a made-up number reaching a real audience. A drafted
+# proof piece came back claiming "an average of 3.75 out of 10 across all eight
+# channels" and a "free 15-minute call" - nobody had said either, and both read
+# as perfectly publishable copy.
+
+from app.services.studio import StudioService, support_text, unverified_claims  # noqa: E402
+from app.services.surfaces import resolve as _resolve  # noqa: E402
+
+
+def test_a_number_nobody_gave_the_writer_is_flagged():
+    sources = support_text({"name": "Engage AI", "mission": "presence across eight channels"})
+    claims = unverified_claims(
+        {"title": "Our scorecard", "body": "We scored 3.75 out of 10 and booked a free 15-minute call."},
+        sources,
+    )
+    assert "3.75 out of 10" in claims
+    assert "free" in claims
+    assert any("15-minute" in c or "15 minute" in c for c in claims)
+
+
+def test_a_number_the_operator_actually_gave_is_not_flagged():
+    sources = support_text(
+        {"name": "Engage AI", "mission": "presence across eight channels"},
+        "The founding group is 20 places at 49 euro a month, closing 2026-09-30.",
+    )
+    body = "20 places, 49 euro a month, closing 2026-09-30."
+    assert unverified_claims({"title": "Founding group", "body": body}, sources) == []
+
+
+def test_word_forms_and_ordinary_copy_are_left_alone():
+    sources = support_text({"mission": "eight channels"})
+    body = "We look at eight channels, one at a time, and tell you where you stand."
+    assert unverified_claims({"title": "Where you stand", "body": body}, sources) == []
+
+
+def test_with_no_sources_nothing_is_flagged():
+    """With nothing to check against, every number would look invented - which
+    is noise, not a finding."""
+    assert unverified_claims({"body": "We scored 3.75 out of 10."}, "") == []
+
+
+def test_the_check_reports_invented_facts_as_one_confirmable_warning():
+    surface = _resolve("linkedin.text_post")
+    draft = {"title": "Our own scorecard", "body": "We scored 3.75 out of 10 across the channels.",
+             "hashtags": [], "image_prompt": "a desk at dusk", "image_alt": "A desk at dusk"}
+    _, report = StudioService().check_surface(
+        draft, surface, "leads", sources=support_text({"name": "Engage AI"}))
+    invented = [i for i in report["issues"] if "may be invented" in i["message"]]
+    assert len(invented) == 1, "one issue listing them all, not one per claim"
+    assert "3.75 out of 10" in invented[0]["message"]
+    assert invented[0]["severity"] == "warning", "only the operator knows if the number is real"
